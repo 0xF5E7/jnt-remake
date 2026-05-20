@@ -1,4 +1,4 @@
-# jnt — Java Native Transpiler
+# JNT — Java Native Transpiler
 
 > A Java bytecode obfuscator and native transpiler that protects JVM applications by applying multi-layered transformations and converting Java bytecode to native machine code via C/Zig.
 
@@ -47,23 +47,23 @@ The result is a hardened JAR whose critical logic runs as native code, making re
 ## Architecture
 
 ```
-Input JAR
-    │
-    ▼
+           Input JAR
+              │
+              ▼
 ┌─────────────────────────────┐
-│       Metaphor Engine       │  ← Java bytecode obfuscation
-│  (renaming, flow, strings,  │
-│   numbers, integrity, etc.) │
+│       Metaphor Engine            │  ← Java bytecode obfuscation
+│  (renaming, flow, strings,       │
+│   numbers, integrity, etc.)      │
 └────────────┬────────────────┘
              │  metaphor-temp.jar
              ▼
 ┌─────────────────────────────┐
-│       Exhaust Engine        │  ← Native transpilation (JNI)
-│  (bytecode → C → native lib)│
-│  Compiler: Zig / GCC / Make │
+│       Exhaust Engine             │  ← Native transpilation (JNI)
+│  (bytecode → C → native lib)    |
+│  Compiler: Zig / GCC / Make.     │
 └────────────┬────────────────┘
-             │
-             ▼
+               │
+               ▼
        output-final.jar  +  native .dll/.so
 ```
 
