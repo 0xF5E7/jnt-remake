@@ -1,6 +1,5 @@
 package war.jnt.core.code.impl;
 
-import lombok.SneakyThrows;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
@@ -318,13 +317,34 @@ public class IndyUnit implements Opcodes {
     }
 
 
-    @SneakyThrows
-    @SneakyThrows
-    private static String readResource(String resourcePath) {
+    private static String readResource(String resourcePath) throws IOException {
+        // 1. Classpath / JAR-bundled resource (preferred)
         try (InputStream is = IndyUnit.class.getClassLoader().getResourceAsStream(resourcePath)) {
             if (is != null) return new String(is.readAllBytes());
         }
-        return Files.readString(Path.of(resourcePath)); // fallback to filesystem
+
+        // 2. Relative to the directory containing the running JAR
+        try {
+            Path jarLocation = Path.of(
+                    IndyUnit.class.getProtectionDomain().getCodeSource().getLocation().toURI()
+            );
+            // getCodeSource may point to a .jar file or a classes/ directory
+            Path base = Files.isDirectory(jarLocation) ? jarLocation : jarLocation.getParent();
+            if (base != null) {
+                Path candidate = base.resolve(resourcePath);
+                if (Files.exists(candidate)) return Files.readString(candidate);
+            }
+        } catch (Exception ignored) {
+            // URISyntaxException or SecurityException — skip this strategy
+        }
+
+        // 3. Relative to the current working directory
+        Path cwdCandidate = Path.of(resourcePath);
+        if (Files.exists(cwdCandidate)) return Files.readString(cwdCandidate);
+
+        throw new IOException(
+                "Resource not found in classpath, JAR directory, or working directory: " + resourcePath
+        );
     }
 
     public static void make(Processor processor) {
@@ -335,11 +355,17 @@ public class IndyUnit implements Opcodes {
                 %s
                 }
                 """, Cache.Companion.cachedIndyArgs(), cacheInitialisationCode);
-        processor.getSources().add(new Source("lib/invokedynamic.c", readResource("helpers/invokedynamic.c")
-                .replace("__CACHE__", output)));
-        processor.getHeaders().add(new Header("lib/invokedynamic.h", readResource("helpers/invokedynamic.h")));
-        processor.getHeaders().add(new Header("lib/boxing.h",         readResource("helpers/boxing.h")));
-        processor.getSources().add(new Source("lib/boxing.c",         readResource("helpers/boxing.c")));
+        try {
+            processor.getSources().add(new Source("lib/invokedynamic.c", readResource("helpers/invokedynamic.c")
+                    .replace("__CACHE__", output)));
+            processor.getHeaders().add(new Header("lib/invokedynamic.h", readResource("helpers/invokedynamic.h")));
+            processor.getHeaders().add(new Header("lib/boxing.h",         readResource("helpers/boxing.h")));
+            processor.getSources().add(new Source("lib/boxing.c",         readResource("helpers/boxing.c")));
+        } catch (IOException e) {
+            throw new RuntimeException(
+                    "Failed to load native helper files. Ensure the JAR was built with 'mvn package' " +
+                    "so helpers/ resources are bundled, or run from the project root directory.", e);
+        }
         cacheInitialisationCode.setLength(0);
     }
 
