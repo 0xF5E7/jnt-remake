@@ -37,27 +37,34 @@ jobs:
         run: mvn -B clean package --file pom.xml
 
       # -----------------------------
-      # Find the JAR file
+      # Get build number and rename JAR
       # -----------------------------
-      - name: Find JAR
+      - name: Get build number and rename JAR
+        id: build_number
         run: |
-          echo "📦 target/ contents:"
-          ls -la target/
-
-          # Find the main JAR (not original, not shaded if you have both)
-          JAR_FILE=$(ls target/jnt-*.jar \
-            | grep -v original \
-            | grep -v sources \
-            | head -n 1)
-
-          if [ -z "$JAR_FILE" ]; then
-            echo "❌ ERROR: No JAR found"
+          # Get the highest existing build number from tags
+          LAST_NUM=$(git ls-remote --tags origin | grep -o 'v[0-9]*' | sed 's/v//' | sort -n | tail -n1)
+          if [ -z "$LAST_NUM" ]; then
+            NEXT_NUM=1
+          else
+            NEXT_NUM=$((LAST_NUM + 1))
+          fi
+          echo "next_number=$NEXT_NUM" >> $GITHUB_OUTPUT
+          
+          # Rename the JAR
+          ORIGINAL_JAR="target/jnt-1.0-SNAPSHOT-jar-with-dependencies.jar"
+          NEW_JAR="target/jnt-${NEXT_NUM}.jar"
+          
+          if [ ! -f "$ORIGINAL_JAR" ]; then
+            echo "❌ ERROR: Original JAR not found at $ORIGINAL_JAR"
+            ls -la target/
             exit 1
           fi
-
-          echo "✅ Found JAR: $JAR_FILE"
-          echo "JAR_FILE=$JAR_FILE" >> "$GITHUB_ENV"
-          echo "JAR_NAME=$(basename "$JAR_FILE")" >> "$GITHUB_ENV"
+          
+          mv "$ORIGINAL_JAR" "$NEW_JAR"
+          echo "JAR_FILE=$NEW_JAR" >> "$GITHUB_ENV"
+          echo "JAR_NAME=jnt-${NEXT_NUM}.jar" >> "$GITHUB_ENV"
+          echo "✅ Renamed to: jnt-${NEXT_NUM}.jar"
 
       # -----------------------------
       # Generate changelog (since last tag)
@@ -84,8 +91,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ env.JAR_FILE }}
-          tag_name: v${{ github.run_number }}
-          name: jnt Build ${{ github.run_number }}
+          tag_name: v${{ steps.build_number.outputs.next_number }}
+          name: jnt Build ${{ steps.build_number.outputs.next_number }}
           body_path: CHANGELOG.md
           overwrite_files: true
         env:
