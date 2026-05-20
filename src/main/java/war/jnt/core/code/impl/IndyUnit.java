@@ -17,6 +17,8 @@ import war.jnt.fusebox.impl.VariableManager;
 import war.jnt.obfuscation.MutatedString;
 import war.jnt.obfuscation.StringLookup;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -317,6 +319,14 @@ public class IndyUnit implements Opcodes {
 
 
     @SneakyThrows
+    @SneakyThrows
+    private static String readResource(String resourcePath) {
+        try (InputStream is = IndyUnit.class.getClassLoader().getResourceAsStream(resourcePath)) {
+            if (is != null) return new String(is.readAllBytes());
+        }
+        return Files.readString(Path.of(resourcePath)); // fallback to filesystem
+    }
+
     public static void make(Processor processor) {
         String output = String.format("""
                 void ensure_indy_cache(JNIEnv* env) {
@@ -325,11 +335,11 @@ public class IndyUnit implements Opcodes {
                 %s
                 }
                 """, Cache.Companion.cachedIndyArgs(), cacheInitialisationCode);
-        processor.getSources().add(new Source("lib/invokedynamic.c", Files.readString(Path.of("helpers/invokedynamic.c"))
+        processor.getSources().add(new Source("lib/invokedynamic.c", readResource("helpers/invokedynamic.c")
                 .replace("__CACHE__", output)));
-        processor.getHeaders().add(new Header("lib/invokedynamic.h", Files.readString(Path.of("helpers/invokedynamic.h"))));
-        processor.getHeaders().add(new Header("lib/boxing.h", Files.readString(Path.of("helpers/boxing.h"))));
-        processor.getSources().add(new Source("lib/boxing.c", Files.readString(Path.of("helpers/boxing.c"))));
+        processor.getHeaders().add(new Header("lib/invokedynamic.h", readResource("helpers/invokedynamic.h")));
+        processor.getHeaders().add(new Header("lib/boxing.h",         readResource("helpers/boxing.h")));
+        processor.getSources().add(new Source("lib/boxing.c",         readResource("helpers/boxing.c")));
         cacheInitialisationCode.setLength(0);
     }
 
