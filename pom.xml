@@ -16,7 +16,6 @@
     </properties>
 
     <dependencies>
-        <!-- https://mvnrepository.com/artifact/org.benf/cfr -->
         <dependency>
             <groupId>org.benf</groupId>
             <artifactId>cfr</artifactId>
@@ -44,14 +43,37 @@
         </dependency>
 
         <!--
-            ASM is a bundled local jar (libraries/asm.jar).
-            We install it to the local Maven repo during the 'initialize' phase
-            so that jar-with-dependencies picks it up as a normal compile dep.
+            ASM is kept as system scope so javac/kotlinc can compile against it.
+            The maven-dependency-plugin below unpacks its classes into target/classes
+            so they get bundled by jar-with-dependencies.
         -->
         <dependency>
-            <groupId>org.ow2.asm.local</groupId>
-            <artifactId>asm-all</artifactId>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm</artifactId>
             <version>9.7</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/libraries/asm.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm-tree</artifactId>
+            <version>9.7</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/libraries/asm.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm-analysis</artifactId>
+            <version>9.7</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/libraries/asm.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm-commons</artifactId>
+            <version>9.7</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/libraries/asm.jar</systemPath>
         </dependency>
 
         <dependency>
@@ -111,33 +133,6 @@
 
     <build>
         <plugins>
-
-            <!--
-                Step 1: Install libraries/asm.jar into the local Maven repo
-                under group 'org.ow2.asm.local' so it can be used as a normal
-                compile-scope dependency and gets bundled by jar-with-dependencies.
-            -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-install-plugin</artifactId>
-                <version>3.1.1</version>
-                <executions>
-                    <execution>
-                        <id>install-asm</id>
-                        <phase>initialize</phase>
-                        <goals>
-                            <goal>install-file</goal>
-                        </goals>
-                        <configuration>
-                            <file>${project.basedir}/libraries/asm.jar</file>
-                            <groupId>org.ow2.asm.local</groupId>
-                            <artifactId>asm-all</artifactId>
-                            <version>9.7</version>
-                            <packaging>jar</packaging>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
 
             <plugin>
                 <groupId>org.jetbrains.kotlin</groupId>
@@ -200,11 +195,34 @@
                 <configuration>
                     <source>21</source>
                     <target>21</target>
-                    <!-- Enable preview features so unnamed variables (_) compile on Java 21 -->
                     <compilerArgs>
                         <arg>--enable-preview</arg>
                     </compilerArgs>
                 </configuration>
+            </plugin>
+
+            <!--
+                Unpack the system-scoped asm.jar into target/classes BEFORE
+                the assembly plugin runs. jar-with-dependencies then sees those
+                classes as part of the project and bundles them.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>unpack-asm</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>unpack-dependencies</goal>
+                        </goals>
+                        <configuration>
+                            <includeScope>system</includeScope>
+                            <outputDirectory>${project.build.outputDirectory}</outputDirectory>
+                            <excludes>META-INF/MANIFEST.MF,META-INF/*.SF,META-INF/*.DSA,META-INF/*.RSA</excludes>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
 
             <plugin>
