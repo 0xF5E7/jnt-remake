@@ -93,13 +93,38 @@ public final class JarFingerprinter {
         List<String> sha256Hexes = new ArrayList<>();
 
         try (ZipFile zip = new ZipFile(jarPath.toFile())) {
+            // First pass: check if any entries exist under the configured libPath prefix.
+            // After ClassRenameMutator runs, the original package path no longer exists in
+            // the obfuscated JAR. Detect this and fall back to all .class files.
+            boolean prefixMatched = false;
+            List<ZipEntry> allEntries = new ArrayList<>();
             Enumeration<? extends ZipEntry> it = zip.entries();
             while (it.hasMoreElements()) {
                 ZipEntry e = it.nextElement();
                 if (e.isDirectory()) continue;
                 String name = e.getName().replace('\\', '/');
-                if (!name.startsWith(libPath)) continue;
                 if (name.endsWith("/")) continue;
+                allEntries.add(e);
+                if (libPath != null && name.startsWith(libPath)) prefixMatched = true;
+            }
+
+            // If nothing matched (classes were renamed by obfuscation), fingerprint
+            // all .class files instead so the fingerprint can still be computed.
+            if (!prefixMatched) {
+                System.err.println("[JarFingerprinter] WARNING: No entries found under prefix '"
+                        + libPath + "' — classes were likely renamed by obfuscation. "
+                        + "Falling back to fingerprinting all .class files.");
+            }
+
+            for (ZipEntry e : allEntries) {
+                String name = e.getName().replace('\\', '/');
+                if (prefixMatched) {
+                    if (!name.startsWith(libPath)) continue;
+                } else {
+                    // Fallback: only .class files, skip META-INF
+                    if (!name.endsWith(".class")) continue;
+                    if (name.startsWith("META-INF/")) continue;
+                }
 
                 String leaf = name.substring(name.lastIndexOf('/') + 1);
                 if ("Loader.class".equals(leaf)) continue;
