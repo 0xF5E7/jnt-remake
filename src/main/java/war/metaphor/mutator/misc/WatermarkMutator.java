@@ -23,10 +23,10 @@ public class WatermarkMutator extends Mutator {
             if (classNode.isInterface()) continue;
             classNode.fields.add(new FieldNode(
                     Opcodes.ACC_TRANSIENT,
-                    "myMetaphor",
+                    "byObfuscated",
                     "Ljava/lang/String;",
                     null,
-                    "myMetaphor @ jnt.so"
+                    "Obfuscated by Joyel"
             ));
         }
     }
