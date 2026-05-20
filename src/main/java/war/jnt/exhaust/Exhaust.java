@@ -8,8 +8,8 @@ import war.jnt.dash.Logger;
 import war.jnt.dash.Origin;
 import war.jnt.utility.timing.Timing;
 
-import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -20,6 +20,16 @@ public class Exhaust {
 
     private static final Logger logger = Logger.INSTANCE;
     private static final Timing timing = new Timing();
+
+    private String readResource(String resourcePath) throws IOException {
+        try (InputStream is = Exhaust.class.getClassLoader().getResourceAsStream(resourcePath)) {
+            if (is != null) {
+                return new String(is.readAllBytes());
+            }
+        }
+        // Fallback: read from filesystem relative to working directory
+        return Files.readString(Paths.get(resourcePath));
+    }
 
     public void prepare(String path) {
         timing.begin();
@@ -46,23 +56,13 @@ public class Exhaust {
 
             Files.createDirectories(Paths.get(path + "/lib"));
 
-            String header = Files.readString(Paths.get("intrinsics/intrinsics.h"));
-            String impl = Files.readString(Paths.get("intrinsics/intrinsics.c"));
+            // Read from classpath (bundled in JAR), fall back to filesystem
+            Files.write(Paths.get(path + "/lib/intrinsics.h"), readResource("intrinsics/intrinsics.h").getBytes());
+            Files.write(Paths.get(path + "/lib/intrinsics.c"), readResource("intrinsics/intrinsics.c").getBytes());
+            Files.write(Paths.get(path + "/lib/jni.h"),        readResource("jni/jni.h").getBytes());
 
-            Files.write(Paths.get(path + "/lib/intrinsics.h"), header.getBytes());
-            Files.write(Paths.get(path + "/lib/intrinsics.c"), impl.getBytes());
-
-            String jni = Files.readString(Paths.get("jni/jni.h"));
-            Files.write(Paths.get(path + "/lib/jni.h"), jni.getBytes());
-
-            File[] helpers = new File("helpers").listFiles();
-            if (helpers != null) {
-                for (File helper : helpers) {
-                    if (helper.isFile()) {
-                        String content = Files.readString(helper.toPath());
-                        Files.write(Paths.get(path + "/lib/" + helper.getName()), content.getBytes());
-                    }
-                }
+            for (String helper : new String[]{"boxing.c", "boxing.h", "invokedynamic.c", "invokedynamic.h"}) {
+                Files.write(Paths.get(path + "/lib/" + helper), readResource("helpers/" + helper).getBytes());
             }
 
         } catch (IOException e) {
