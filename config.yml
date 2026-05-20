@@ -1,4 +1,5 @@
-input: C:/Users/etho/git/test-suite/out/artifacts/test_suite_jar/test-suite.jar
+input: input.jar
+output: output-obf.jar
 
 compiler:
   os: windows
