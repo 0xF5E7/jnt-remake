@@ -55,8 +55,8 @@ The result is a hardened JAR whose critical logic runs as native code, making re
 │  (renaming, flow, strings,       │
 │   numbers, integrity, etc.)      │
 └────────────┬────────────────┘
-             │  metaphor-temp.jar
-             ▼
+               │  metaphor-temp.jar
+               ▼
 ┌─────────────────────────────┐
 │       Exhaust Engine             │  ← Native transpilation (JNI)
 │  (bytecode → C → native lib)    |
