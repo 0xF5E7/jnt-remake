@@ -187,6 +187,10 @@
                 <configuration>
                     <source>21</source>
                     <target>21</target>
+                    <!-- Enable preview features so unnamed variables (_) compile on Java 21 -->
+                    <compilerArgs>
+                        <arg>--enable-preview</arg>
+                    </compilerArgs>
                 </configuration>
             </plugin>
             <plugin>
