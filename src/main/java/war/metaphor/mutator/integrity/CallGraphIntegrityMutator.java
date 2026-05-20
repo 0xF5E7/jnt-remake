@@ -85,7 +85,11 @@ public class CallGraphIntegrityMutator extends Mutator {
 
                 int[] hashes = callers.stream()
                         .mapToInt(m -> m.name.hashCode())
+                        .distinct()                        
+                        .sorted()
                         .toArray();
+                
+                if (hashes.length == 0) continue;
 
                 int key = checkKey.computeIfAbsent(called, _ -> {
                     int seed = RandomUtils.nextInt();
