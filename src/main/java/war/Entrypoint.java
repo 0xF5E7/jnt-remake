@@ -102,20 +102,26 @@ public class Entrypoint {
             logger.logln(Level.INFO, Origin.FUSEBOX, "No jnt-path specified, using default path war/jnt");
         }
 
-        String host = "jnt.so";
-        InetAddress inet = InetAddress.getByName(host);
+        try {
+            String host = "jnt.so";
+            InetAddress inet = InetAddress.getByName(host);
 
-        long start = System.currentTimeMillis();
-        boolean reachable = inet.isReachable(2500);
-        long end = System.currentTimeMillis();
+            long start = System.currentTimeMillis();
+            boolean reachable = inet.isReachable(2500);
+            long end = System.currentTimeMillis();
 
-        if (reachable) {
-            long ping = end - start;
-            logger.logln(Level.INFO, Origin.FUSEBOX, "Heartbeat (jnt.so): " + (ping > 400 ? new Ansi().c(RED).s(ping + "ms") : ping + "ms"));
+            if (reachable) {
+                long ping = end - start;
+                logger.logln(Level.INFO, Origin.FUSEBOX, "Heartbeat (jnt.so): " + (ping > 400 ? new Ansi().c(RED).s(ping + "ms") : ping + "ms"));
 
-            if (ping > 400) {
-                logger.logln(Level.WARNING, Origin.FUSEBOX, "Expect slow obfuscation speed due to slow network speed.");
+                if (ping > 400) {
+                    logger.logln(Level.WARNING, Origin.FUSEBOX, "Expect slow obfuscation speed due to slow network speed.");
+                }
+            } else {
+                logger.logln(Level.WARNING, Origin.FUSEBOX, "Heartbeat (jnt.so): unreachable, continuing offline.");
             }
+        } catch (Exception e) {
+            logger.logln(Level.WARNING, Origin.FUSEBOX, "Heartbeat (jnt.so): skipped (" + e.getMessage() + ")");
         }
 
         StringBuilder sb = new StringBuilder();
