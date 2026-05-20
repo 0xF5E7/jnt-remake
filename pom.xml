@@ -42,20 +42,18 @@
             <artifactId>snakeyaml</artifactId>
             <version>LATEST</version>
         </dependency>
+
+        <!--
+            ASM is a bundled local jar (libraries/asm.jar).
+            We install it to the local Maven repo during the 'initialize' phase
+            so that jar-with-dependencies picks it up as a normal compile dep.
+        -->
         <dependency>
-            <groupId>org.ow2.asm</groupId>
-            <artifactId>asm</artifactId>
+            <groupId>org.ow2.asm.local</groupId>
+            <artifactId>asm-all</artifactId>
             <version>9.7</version>
-            <scope>system</scope>
-            <systemPath>${project.basedir}/libraries/asm.jar</systemPath>
         </dependency>
-        <dependency>
-            <groupId>org.ow2.asm</groupId>
-            <artifactId>asm-tree</artifactId>
-            <version>9.7</version>
-            <scope>system</scope>
-            <systemPath>${project.basedir}/libraries/asm.jar</systemPath>
-        </dependency>
+
         <dependency>
             <groupId>com.fifesoft</groupId>
             <artifactId>rsyntaxtextarea</artifactId>
@@ -67,23 +65,9 @@
             <version>0.11.5</version>
         </dependency>
         <dependency>
-            <groupId>org.ow2.asm</groupId>
-            <artifactId>asm-analysis</artifactId>
-            <version>9.7</version>
-            <scope>system</scope>
-            <systemPath>${project.basedir}/libraries/asm.jar</systemPath>
-        </dependency>
-        <dependency>
             <groupId>com.formdev</groupId>
             <artifactId>flatlaf</artifactId>
             <version>3.6.1</version>
-        </dependency>
-        <dependency>
-            <groupId>org.ow2.asm</groupId>
-            <artifactId>asm-commons</artifactId>
-            <version>9.7</version>
-            <scope>system</scope>
-            <systemPath>${project.basedir}/libraries/asm.jar</systemPath>
         </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
@@ -127,6 +111,34 @@
 
     <build>
         <plugins>
+
+            <!--
+                Step 1: Install libraries/asm.jar into the local Maven repo
+                under group 'org.ow2.asm.local' so it can be used as a normal
+                compile-scope dependency and gets bundled by jar-with-dependencies.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-install-plugin</artifactId>
+                <version>3.1.1</version>
+                <executions>
+                    <execution>
+                        <id>install-asm</id>
+                        <phase>initialize</phase>
+                        <goals>
+                            <goal>install-file</goal>
+                        </goals>
+                        <configuration>
+                            <file>${project.basedir}/libraries/asm.jar</file>
+                            <groupId>org.ow2.asm.local</groupId>
+                            <artifactId>asm-all</artifactId>
+                            <version>9.7</version>
+                            <packaging>jar</packaging>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
             <plugin>
                 <groupId>org.jetbrains.kotlin</groupId>
                 <artifactId>kotlin-maven-plugin</artifactId>
@@ -157,6 +169,7 @@
                     <jvmTarget>${maven.compiler.target}</jvmTarget>
                 </configuration>
             </plugin>
+
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -193,6 +206,7 @@
                     </compilerArgs>
                 </configuration>
             </plugin>
+
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-assembly-plugin</artifactId>
@@ -215,6 +229,7 @@
                     </execution>
                 </executions>
             </plugin>
+
         </plugins>
     </build>
 
