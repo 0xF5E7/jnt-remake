@@ -132,6 +132,21 @@
     </dependencies>
 
     <build>
+
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <!-- Bundle native C headers/sources so Exhaust can read them from classpath -->
+            <resource>
+                <directory>${project.basedir}</directory>
+                <includes>
+                    <include>intrinsics/**</include>
+                    <include>helpers/**</include>
+                    <include>jni/**</include>
+                </includes>
+            </resource>
+        </resources>
         <plugins>
 
             <plugin>
