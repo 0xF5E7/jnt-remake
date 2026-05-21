@@ -36,7 +36,7 @@ public class ClassRenameMutator extends MappingMutator {
 
         for (JClassNode classNode : classesList) {
             if (classNode.isExempt()) continue;
-            String newName = config.getString("prefix", "") + Dictionary.gen(1, Purpose.CLASS);
+            String newName = config.getString("prefix", "") + Dictionary.gen(2, Purpose.CLASS);
             String oldName = classNode.name;
 
             mapping.put(oldName, newName);
