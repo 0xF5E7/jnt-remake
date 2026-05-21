@@ -51,7 +51,7 @@ import java.util.List;
 @Stability(Level.HIGH)
 public class AntiDebugMutator extends Mutator {
 
-    private static final String GUARD_CLASS = "war/jnt/guard/AntiDebug";
+    private static final String GUARD_CLASS = "dev/ark/guard/AntiDebug";
     private static final int    VERSION     = V11;
 
     private final String  reaction;
