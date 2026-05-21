@@ -3,8 +3,7 @@ package war.metaphor.util;
 import lombok.experimental.UtilityClass;
 
 import java.security.SecureRandom;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 @UtilityClass
 public class Dictionary {
@@ -13,10 +12,10 @@ public class Dictionary {
 
     private final SecureRandom rand = new SecureRandom();
 
-    private final List<String> usedClass = new ArrayList<>();
-    private final List<String> usedField = new ArrayList<>();
-    private final List<String> usedMethod = new ArrayList<>();
-    private final List<String> usedGeneric = new ArrayList<>();
+    private final Set<String> usedClass = new HashSet<>();
+    private final Set<String> usedField = new HashSet<>();
+    private final Set<String> usedMethod = new HashSet<>();
+    private final Set<String> usedGeneric = new HashSet<>();
 
     public String gen(int length, Purpose purpose) {
         StringBuilder sb = new StringBuilder();
