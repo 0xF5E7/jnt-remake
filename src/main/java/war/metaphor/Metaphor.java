@@ -7,6 +7,7 @@ import war.metaphor.mutator.data.integer.IntegerTableMutator;
 import war.metaphor.mutator.data.integer.SaltingIntegerMutator;
 import war.metaphor.mutator.data.strings.LightStringMutator;
 import war.metaphor.mutator.data.strings.StringMutator;
+import war.metaphor.mutator.data.strings.StringSplitMutator;
 import war.metaphor.mutator.data.strings.poly2.NewStringMutator;
 import war.metaphor.mutator.flow.*;
 import war.metaphor.mutator.integrity.CallGraphIntegrityMutator;
@@ -69,6 +70,8 @@ public class Metaphor {
                 .mutator("string.poly", StringMutator.class)
                 .mutator("string.poly2", NewStringMutator.class)
                 .mutator("string.light", LightStringMutator.class)
+                .mutator("string.split", StringSplitMutator.class)
+            
                 .mutator("flow.break", BlockBreakMutator.class)
                 .mutator("flow.flattening", ControlFlowFlatteningMutator.class)
                 .mutator("method-split",    MethodSplittingMutator.class)
