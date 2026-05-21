@@ -71,8 +71,21 @@ public class MethodSplittingMutator extends Mutator {
                 if (classNode.isExempt(method)) continue;
                 if (Modifier.isAbstract(method.access)) continue;
                 if (method.name.equals("<init>") || method.name.equals("<clinit>")) continue;
-                if (method.instructions.size() < minInsn) continue;
+                if (method.instructions == null || method.instructions.size() < minInsn) continue;
                 if (method.tryCatchBlocks != null && !method.tryCatchBlocks.isEmpty()) continue;
+
+                // FIX: skip methods containing any jump/switch instructions.
+                // The clone-without-label-remapping approach used in splitMethod cannot
+                // safely handle jumps — labels in cloned segments would still point into
+                // the original method's InsnList, causing VerifyError at runtime.
+                // flow.flattening introduces its own TABLESWITCH dispatchers, so virtually
+                // all flattened methods are caught here. Only genuinely linear methods proceed.
+                if (hasAnyJump(method)) continue;
+
+                // FIX: guard against a null first instruction (can happen if a prior mutator
+                // left the method in a partially-cleared state).
+                if (method.instructions.getFirst() == null) continue;
+
                 if (rand.nextInt(100) >= chance) continue;
 
                 List<MethodNode> splitParts = splitMethod(classNode, method);
@@ -83,6 +96,21 @@ public class MethodSplittingMutator extends Mutator {
 
             classNode.methods.addAll(toAdd);
         }
+    }
+
+    /**
+     * Returns true if the method contains any conditional/unconditional branch or
+     * switch instruction. Such methods are ineligible for the simple segment split.
+     */
+    private boolean hasAnyJump(MethodNode method) {
+        for (AbstractInsnNode n : method.instructions) {
+            int op = n.getOpcode();
+            // IFEQ(153)..JSR(168), GOTO(167), TABLESWITCH(170), LOOKUPSWITCH(171)
+            if ((op >= IFEQ && op <= JSR) || op == TABLESWITCH || op == LOOKUPSWITCH) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -101,6 +129,12 @@ public class MethodSplittingMutator extends Mutator {
      */
     private List<MethodNode> splitMethod(JClassNode classNode, MethodNode method) {
         AbstractInsnNode[] all = method.instructions.toArray();
+
+        // FIX: guard against an empty or null instruction array.
+        if (all == null || all.length == 0) return null;
+
+        // FIX: guard against getFirst() returning null (defensive, belt-and-suspenders).
+        if (method.instructions.getFirst() == null) return null;
 
         // Filter out labels, line numbers, frames — only count real instructions
         List<AbstractInsnNode> real = new ArrayList<>();
@@ -137,6 +171,12 @@ public class MethodSplittingMutator extends Mutator {
 
         if (segmentEntryPoints.isEmpty()) return null;
 
+        // FIX: validate that every entry-point node is non-null and actually belongs
+        // to this method's instruction list before we start cloning.
+        for (AbstractInsnNode ep : segmentEntryPoints) {
+            if (ep == null) return null;
+        }
+
         // Generate synthetic names for each part
         String baseName = method.name;
         List<String> partNames = new ArrayList<>();
@@ -161,20 +201,47 @@ public class MethodSplittingMutator extends Mutator {
                     ? segmentEntryPoints.get(seg)
                     : null;   // null = end of method
 
+            // FIX: if start is somehow null at this point, abort cleanly rather than
+            // letting ASM's InsnList.add() NPE on the null node.
+            if (start == null) return null;
+
             MethodNode part = new MethodNode(
                     ACC_PRIVATE | ACC_STATIC | ACC_SYNTHETIC,
                     partNames.get(seg),
                     buildPartDesc(method, isStatic),
                     null, null);
 
-            // Collect instructions from start to end (exclusive)
+            // Collect instructions from start to end (exclusive).
+            // We build a LabelNode remapping table so that any residual jump targets
+            // within a segment (e.g. from a GOTO that stayed inside one segment after
+            // flattening) are remapped to the cloned labels rather than the originals.
+            Map<LabelNode, LabelNode> labelMap = new HashMap<>();
+            // Pre-scan for LabelNodes in this segment and create their replacements.
+            AbstractInsnNode probe = start;
+            while (probe != null && probe != end) {
+                if (probe instanceof LabelNode) {
+                    labelMap.put((LabelNode) probe, new LabelNode());
+                }
+                probe = probe.getNext();
+            }
+
             InsnList partInsns = new InsnList();
             AbstractInsnNode cur = start;
             while (cur != null && cur != end) {
-                AbstractInsnNode next = cur.getNext();
-                partInsns.add(cur.clone(new HashMap<>()));
-                cur = next;
+                // FIX: use the populated labelMap so cloned jump instructions resolve
+                // to labels inside this segment's InsnList, not the original method's.
+                AbstractInsnNode cloned = cur.clone(labelMap);
+                // FIX: only add non-null clones (clone() should never return null for
+                // well-formed nodes, but guard anyway).
+                if (cloned != null) {
+                    partInsns.add(cloned);
+                }
+                cur = cur.getNext();
             }
+
+            // FIX: if the segment produced an empty instruction list, bail out.
+            // An empty part would generate invalid bytecode.
+            if (partInsns.size() == 0) return null;
 
             if (seg < segmentEntryPoints.size()) {
                 // Not the last segment — replace last return-like insn with call to next part
