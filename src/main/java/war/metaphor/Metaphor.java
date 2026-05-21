@@ -78,7 +78,9 @@ public class Metaphor {
                 .mutator("flow.shuffle", InstructionShuffleMutator.class)
                 .mutator("flow.switch", SwitchMutator.class)
                 .mutator("flow.traps", TrapEdgeMutator.class)
+                .mutator("flow.bogus-exceptions", BogusExceptionHandlerMutator.class)
                 .mutator("flow.opaque", OpaquePredicatesMutator.class)
+            
                 .mutator("number.salt", SaltingIntegerMutator.class)
                 .mutator("number.table", IntegerTableMutator.class)
 
