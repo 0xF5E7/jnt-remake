@@ -179,7 +179,7 @@ public final class ObfuscatorContext {
 
     public void exportRepository() {
         try {
-            Files.write(Paths.get(System.currentTimeMillis() + ".repo"), getRepository().toString().getBytes());
+            Files.write(Paths.get("mappings.txt"), getRepository().toString().getBytes());
         } catch (IOException e) {
             e.printStackTrace(System.err);
         }
