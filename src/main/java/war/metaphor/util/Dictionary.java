@@ -3,7 +3,9 @@ package war.metaphor.util;
 import lombok.experimental.UtilityClass;
 
 import java.security.SecureRandom;
-import java.util.*;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.Set;
 
 @UtilityClass
 public class Dictionary {
@@ -25,12 +27,11 @@ public class Dictionary {
             sb.append(STRICT_CHARS.charAt(idx));
         }
 
-        if (purpose != null)
-        {
-            List<String> used = switch (purpose) {
-                case CLASS -> usedClass;
-                case FIELD -> usedField;
-                case METHOD -> usedMethod;
+        if (purpose != null) {
+            Collection<String> used = switch (purpose) {
+                case CLASS   -> usedClass;
+                case FIELD   -> usedField;
+                case METHOD  -> usedMethod;
                 case GENERIC -> usedGeneric;
             };
 
@@ -45,14 +46,12 @@ public class Dictionary {
     }
 
     public void addUsed(String s, Purpose purpose) {
-        List<String> used = switch (purpose) {
-            case CLASS -> usedClass;
-            case FIELD -> usedField;
-            case METHOD -> usedMethod;
+        Collection<String> used = switch (purpose) {
+            case CLASS   -> usedClass;
+            case FIELD   -> usedField;
+            case METHOD  -> usedMethod;
             case GENERIC -> usedGeneric;
         };
-
-        if (used.contains(s)) return;
 
         used.add(s);
     }
