@@ -17,6 +17,7 @@ public class ClassBuilder {
 
     public ClassBuilder withName(String name) {
         classNode.name = name;
+        classNode.setRealName(name);
         return this;
     }
 
