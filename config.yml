@@ -23,7 +23,7 @@ debug:
 
 fingerprint: false
 
-jnt-path: war/jnt
+jnt-path: dev/ark
 mutators:
   metaphor:
     order:
