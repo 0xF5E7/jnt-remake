@@ -13,7 +13,7 @@ public enum Origin {
     TIMING   ("jnt::timing",           "timing",  "32m"),   // green
     STACKMAN ("jnt::stack_management", "stack",   "34m"),   // blue
     ARGS     ("jnt::args",             "args",    "33m"),   // yellow
-    METAPHOR ("jnt::metaphor",         "metaphor","96m"),   // bright cyan
+    METAPHOR ("jnt::metaphor",         "ark","96m"),   // bright cyan
     WORKER   ("jnt::worker",           "worker",  "36m");   // cyan
 
     /** Full origin string used in legacy contexts (unchanged). */
