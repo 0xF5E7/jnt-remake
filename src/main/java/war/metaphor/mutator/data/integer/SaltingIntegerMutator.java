@@ -200,7 +200,7 @@ public class SaltingIntegerMutator extends Mutator {
                 }
 
                 if (method.signature == null || !method.signature.startsWith("pass::jnt")) {
-                    method.signature = "pass::jnt:" + Base64.getEncoder().encodeToString(method.name.getBytes());
+                    method.signature = "plot::ark:" + Base64.getEncoder().encodeToString(method.name.getBytes());
                 }
 
                 base.getRepository().add(new Mapping(
