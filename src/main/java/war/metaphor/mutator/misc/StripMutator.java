@@ -35,7 +35,7 @@ public class StripMutator extends Mutator {
                     }
                 }
                 method.localVariables = null;
-                if (method.signature != null && !method.signature.startsWith("pass::jnt")) {
+                if (method.signature != null && !method.signature.startsWith("plot::ark")) {
                     method.signature = null;
                 }
                 method.parameters = null;
