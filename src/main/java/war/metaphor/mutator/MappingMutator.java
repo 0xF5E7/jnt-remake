@@ -5,6 +5,7 @@ import org.objectweb.asm.commons.ClassRemapper;
 import org.objectweb.asm.tree.AnnotationNode;
 import org.objectweb.asm.tree.FieldNode;
 import org.objectweb.asm.tree.InvokeDynamicInsnNode;
+import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import war.configuration.ConfigurationSection;
 import war.metaphor.asm.JRemapper;
@@ -90,7 +91,6 @@ public abstract class MappingMutator extends Mutator {
                                         remapper.mapMethodDesc(desc), handle.isInterface());
                             }
                         }
-
                     }
                 });
             });
@@ -115,6 +115,21 @@ public abstract class MappingMutator extends Mutator {
         }
 
         old2new.forEach(JClassNode::update);
+
+        for (JClassNode cn : base.getClasses()) {
+            for (MethodNode mn : cn.methods) {
+                mn.instructions.forEach(insn -> {
+                    if (insn instanceof MethodInsnNode min && mappings.containsKey(min.owner)) {
+                        throw new RuntimeException(
+                            "Unmapped owner detected after remapping in " +
+                            cn.name + "." + mn.name + " -> " +
+                            min.owner + "." + min.name + min.desc +
+                            " (should have been remapped to: " + mappings.get(min.owner) + ")"
+                        );
+                    }
+                });
+            }
+        }
 
         Hierarchy.INSTANCE.reset();
         Hierarchy.INSTANCE.ensureGraphBuilt();
