@@ -38,7 +38,8 @@ public class Ansi {
     @Getter
     public enum Attribute {
         RESET("0"),
-        BOLD("1");
+        BOLD("1"),
+        DIM("2");
 
         private final String code;
 
