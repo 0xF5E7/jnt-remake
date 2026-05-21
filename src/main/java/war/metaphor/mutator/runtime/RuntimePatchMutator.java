@@ -28,7 +28,7 @@ public class RuntimePatchMutator extends Mutator {
     private ClassWriter createSafeClassWriter() {
         return new ClassWriter(ClassWriter.COMPUTE_FRAMES) {
             @Override
-            protected String getCommonSuperClass(String type1, String type2) {
+            public String getCommonSuperClass(String type1, String type2) {
                 try {
                     Hierarchy hierarchy = Hierarchy.INSTANCE;
                     if (hierarchy != null) {
