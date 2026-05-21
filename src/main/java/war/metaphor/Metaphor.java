@@ -10,6 +10,7 @@ import war.metaphor.mutator.data.strings.StringMutator;
 import war.metaphor.mutator.data.strings.poly2.NewStringMutator;
 import war.metaphor.mutator.flow.*;
 import war.metaphor.mutator.integrity.CallGraphIntegrityMutator;
+import war.metaphor.mutator.integrity.AntiDebugMutator; 
 import war.metaphor.mutator.integrity.mainCallCheck.MainCallCheckMutator;
 import war.metaphor.mutator.integrity.method.MethodIntegrityMutator;
 import war.metaphor.mutator.loader.CleanupMutator;
@@ -63,6 +64,7 @@ public class Metaphor {
                 .mutator("main-call-check", MainCallCheckMutator.class)
                 .mutator("call-graph", CallGraphIntegrityMutator.class)
                 .mutator("method-integrity", MethodIntegrityMutator.class)
+                .mutator("anti-debug",        AntiDebugMutator.class) 
 
                 .mutator("string.poly", StringMutator.class)
                 .mutator("string.poly2", NewStringMutator.class)
