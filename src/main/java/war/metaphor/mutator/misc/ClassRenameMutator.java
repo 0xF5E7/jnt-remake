@@ -26,7 +26,6 @@ public class ClassRenameMutator extends MappingMutator {
         super(base, config);
     }
 
-    boolean test = false;
     @Override
     public void run(ObfuscatorContext base) {
         Map<String, String> mapping = new HashMap<>();
@@ -36,7 +35,12 @@ public class ClassRenameMutator extends MappingMutator {
 
         for (JClassNode classNode : classesList) {
             if (classNode.isExempt()) continue;
-            String newName = config.getString("prefix", "") + Dictionary.gen(2, Purpose.CLASS);
+
+            String newName;
+            do {
+                newName = config.getString("prefix", "") + Dictionary.gen(2, Purpose.CLASS);
+            } while (mapping.containsValue(newName));
+
             String oldName = classNode.name;
 
             mapping.put(oldName, newName);
@@ -71,6 +75,5 @@ public class ClassRenameMutator extends MappingMutator {
                 resource.setContent(handler.handle(contents, mapping).getBytes(StandardCharsets.UTF_8));
             }
         }
-
     }
 }
