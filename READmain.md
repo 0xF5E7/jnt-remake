@@ -125,10 +125,10 @@ java -jar jnt-1.0-SNAPSHOT-jar-with-dependencies.jar --config config.yml
 
 ```bash
 # Full pipeline: obfuscate + transpile to native
-java -jar jnt.jar --config config.yml
+java --enable-preview -jar jnt.jar --config config.yml
 
 # Obfuscation only (no native compilation)
-java -jar jnt.jar --config config.yml --metaphor true
+java -jar --enable-preview jnt-.jar --config config.yml --metaphor true
 
 # Native transpilation only (skip obfuscation)
 java -jar jnt.jar --config config.yml --transpile true
