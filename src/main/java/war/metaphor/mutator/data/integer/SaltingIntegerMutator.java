@@ -199,7 +199,7 @@ public class SaltingIntegerMutator extends Mutator {
                     }
                 }
 
-                if (method.signature == null || !method.signature.startsWith("pass::jnt")) {
+                if (method.signature == null || !method.signature.startsWith("plot::ark")) {
                     method.signature = "plot::ark:" + Base64.getEncoder().encodeToString(method.name.getBytes());
                 }
 
