@@ -6,6 +6,7 @@ import war.jnt.annotate.Level;
 import war.jnt.annotate.Stability;
 import war.metaphor.base.ObfuscatorContext;
 import war.metaphor.mutator.Mutator;
+import war.metaphor.tree.Hierarchy;
 import war.metaphor.util.asm.BytecodeUtil;
 
 import org.objectweb.asm.Opcodes;
@@ -22,6 +23,24 @@ import war.metaphor.tree.JClassNode;
 public class RuntimePatchMutator extends Mutator {
     public RuntimePatchMutator(ObfuscatorContext base, ConfigurationSection config) {
         super(base, config);
+    }
+    
+    private ClassWriter createSafeClassWriter() {
+        return new ClassWriter(ClassWriter.COMPUTE_FRAMES) {
+            @Override
+            protected String getCommonSuperClass(String type1, String type2) {
+                try {
+                    Hierarchy hierarchy = Hierarchy.INSTANCE;
+                    if (hierarchy != null) {
+                        return hierarchy.getCommonSuperClass(type1, type2);
+                    }
+                } catch (Exception ignored) {}
+                try {
+                    return super.getCommonSuperClass(type1, type2);
+                } catch (Exception ignored) {}
+                return "java/lang/Object";
+            }
+        };
     }
 
     @Override
@@ -60,7 +79,7 @@ public class RuntimePatchMutator extends Mutator {
                 MethodNode copied = BytecodeUtil.clone(method);
                 patchNode.methods.add(copied);
 
-                ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+                ClassWriter cw = createSafeClassWriter();
                 patchNode.accept(cw);
                 byte[] patchBytes = cw.toByteArray();
 
@@ -68,7 +87,7 @@ public class RuntimePatchMutator extends Mutator {
 
                 String methodKey = method.name + method.desc;
                 embedList.add(new LdcInsnNode(methodKey + "\0" + encodedBytes));
-                embedList.add(new InsnNode(Opcodes.POP)); // discard, should only be an entry in the pool
+                embedList.add(new InsnNode(Opcodes.POP));
             }
 
             if (embedList.size() > 0) {
