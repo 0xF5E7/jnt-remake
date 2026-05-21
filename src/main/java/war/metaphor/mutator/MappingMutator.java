@@ -58,80 +58,72 @@ public abstract class MappingMutator extends Mutator {
     }
 
     public final void map(ObfuscatorContext base, Map<String, String> mappings) {
-        Map<JClassNode, JClassNode> old2new = new HashMap<>();
+    Map<JClassNode, JClassNode> old2new = new HashMap<>();
 
-        JRemapper remapper = new JRemapper(mappings);
+    JRemapper remapper = new JRemapper(mappings);
 
-        for (JClassNode classNode : base.getClasses()) {
+    for (JClassNode classNode : base.getClasses()) {
+        JClassNode remap = new JClassNode();
+        ClassRemapper classRemapper = new ClassRemapper(remap, remapper);
+        classNode.accept(classRemapper);
 
-            JClassNode remap = new JClassNode();
+        remap.methods.forEach(method -> {
+            method.instructions.forEach(instruction -> {
+                if (instruction instanceof InvokeDynamicInsnNode insn) {
+                    Handle handle = insn.bsm;
+                    String owner = handle.getOwner();
+                    String name  = handle.getName();
+                    String desc  = handle.getDesc();
+                    insn.bsm = new Handle(handle.getTag(), remapper.mapType(owner),
+                            remapper.mapMethodName(owner, name, desc),
+                            remapper.mapMethodDesc(desc), handle.isInterface());
 
-            ClassRemapper classRemapper = new ClassRemapper(remap, remapper);
-            classNode.accept(classRemapper);
-
-            remap.methods.forEach(method -> {
-                method.instructions.forEach(instruction -> {
-                    if (instruction instanceof InvokeDynamicInsnNode insn) {
-                        Handle handle = insn.bsm;
-
-                        String owner = handle.getOwner();
-                        String name = handle.getName();
-                        String desc = handle.getDesc();
-                        insn.bsm = new Handle(handle.getTag(), remapper.mapType(owner), remapper.mapMethodName(owner, name, desc),
-                                remapper.mapMethodDesc(desc), handle.isInterface());
-
-                        for (int i = 0; i < insn.bsmArgs.length; i++) {
-                            Object bsmArg = insn.bsmArgs[i];
-                            if (bsmArg instanceof Handle) {
-                                handle = (Handle) bsmArg;
-                                owner = handle.getOwner();
-                                name = handle.getName();
-                                desc = handle.getDesc();
-                                insn.bsmArgs[i] = new Handle(handle.getTag(), remapper.mapType(owner), remapper.mapMethodName(owner, name, desc),
-                                        remapper.mapMethodDesc(desc), handle.isInterface());
-                            }
+                    for (int i = 0; i < insn.bsmArgs.length; i++) {
+                        Object bsmArg = insn.bsmArgs[i];
+                        if (bsmArg instanceof Handle h) {
+                            insn.bsmArgs[i] = new Handle(h.getTag(), remapper.mapType(h.getOwner()),
+                                    remapper.mapMethodName(h.getOwner(), h.getName(), h.getDesc()),
+                                    remapper.mapMethodDesc(h.getDesc()), h.isInterface());
                         }
                     }
-                });
+                }
             });
+        });
 
-            if (remap.visibleAnnotations != null) {
-                for (AnnotationNode visibleAnnotation : remap.visibleAnnotations) {
-                    if (visibleAnnotation.values == null) continue;
-                    for (Object value : visibleAnnotation.values) {
-                        if (value instanceof String[] arr) {
-                            if (Arrays.stream(arr).allMatch(Objects::nonNull)) {
-                                String className = arr[0];
-                                String fieldName = arr[1];
-                                arr[1] = remapper.mapAnnotationAttributeName(className, fieldName);
-                            }
+        if (remap.visibleAnnotations != null) {
+            for (AnnotationNode visibleAnnotation : remap.visibleAnnotations) {
+                if (visibleAnnotation.values == null) continue;
+                for (Object value : visibleAnnotation.values) {
+                    if (value instanceof String[] arr) {
+                        if (Arrays.stream(arr).allMatch(Objects::nonNull)) {
+                            arr[1] = remapper.mapAnnotationAttributeName(arr[0], arr[1]);
                         }
                     }
                 }
             }
-
-            remap.setRealName(classNode.getRealName());
-            old2new.put(classNode, remap);
         }
 
-        old2new.forEach(JClassNode::update);
-
-        for (JClassNode cn : base.getClasses()) {
-            for (MethodNode mn : cn.methods) {
-                mn.instructions.forEach(insn -> {
-                    if (insn instanceof MethodInsnNode min && mappings.containsKey(min.owner)) {
-                        throw new RuntimeException(
-                            "Unmapped owner detected after remapping in " +
-                            cn.name + "." + mn.name + " -> " +
-                            min.owner + "." + min.name + min.desc +
-                            " (should have been remapped to: " + mappings.get(min.owner) + ")"
-                        );
-                    }
-                });
-            }
-        }
-
-        Hierarchy.INSTANCE.reset();
-        Hierarchy.INSTANCE.ensureGraphBuilt();
+        remap.setRealName(classNode.getRealName());
+        old2new.put(classNode, remap);
     }
+
+    Set<JClassNode> classes = base.getClasses();
+    Map<String, JClassNode> classCache = base.getClassCache();
+
+    classes.clear();
+    classCache.clear();
+
+    for (JClassNode remapped : old2new.values()) {
+        classes.add(remapped);
+        classCache.put(remapped.name, remapped);
+    }
+
+    // Re-add libraries to cache (they were not remapped, just keep them)
+    for (JClassNode lib : base.getLibraries()) {
+        classCache.put(lib.name, lib);
+    }
+
+    Hierarchy.INSTANCE.reset();
+    Hierarchy.INSTANCE.ensureGraphBuilt();
+  }
 }
