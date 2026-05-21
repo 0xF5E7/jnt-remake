@@ -7,11 +7,9 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.concurrent.locks.ReentrantLock;
-
-import static war.jnt.dash.Ansi.Attribute.RESET;
-import static war.jnt.dash.Ansi.Color.BRIGHT_RED;
-import static war.jnt.dash.Ansi.Color.BRIGHT_YELLOW;
 
 @Setter
 public class Logger {
@@ -19,9 +17,15 @@ public class Logger {
     public static final Logger INSTANCE = new Logger();
 
     private static final StringBuilder output = new StringBuilder();
-    private static final StringBuilder copy = new StringBuilder();
-    private Level level = Level.DEBUG;
+    private static final StringBuilder copy   = new StringBuilder();
+    private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm:ss.SSS");
 
+    // ── ANSI shorthands ────────────────────────────────────────────────────────
+    private static final String RS  = Ansi.esc + "0m";          // reset
+    private static final String DIM = Ansi.esc + "2;37m";       // dim gray   (timestamps)
+    private static final String SEP = Ansi.esc + "90m" + "│" + RS; // dark-gray separator
+
+    private Level level = Level.DEBUG;
     private ReentrantLock lock = new ReentrantLock();
 
     public Logger() {}
@@ -30,100 +34,177 @@ public class Logger {
         this.level = level;
     }
 
+    // ── Banner ─────────────────────────────────────────────────────────────────
+
     public void ascii() {
         if (level == Level.NONE) return;
-        if (Entrypoint.JNT_DISTRO == 2) {
-            System.out.println("""    
-                        /$$$$$ /$$   /$$ /$$$$$$$$
-                       |__  $$| $$$ | $$|__  $$__/
-                          | $$| $$$$| $$   | $$  \s
-                          | $$| $$ $$ $$   | $$  \s
-                     /$$  | $$| $$  $$$$   | $$  \s
-                    | $$  | $$| $$\\  $$$   | $$  \s
-                    |  $$$$$$/| $$ \\  $$   | $$  \s
-                     \\______/ |__/  \\__/   |__/  \s
-                    """);
-        } else if (Entrypoint.JNT_DISTRO == 3) {
-            System.out.println("""    
-                        /$$$$$ /$$   /$$ /$$$$$$$$ /$$$$$$\s
-                       |__  $$| $$$ | $$|__  $$__//$$__  $$
-                          | $$| $$$$| $$   | $$  |__/  \\ $$
-                          | $$| $$ $$ $$   | $$     /$$$$$/
-                     /$$  | $$| $$  $$$$   | $$    |___  $$
-                    | $$  | $$| $$\\  $$$   | $$   /$$  \\ $$
-                    |  $$$$$$/| $$ \\  $$   | $$  |  $$$$$$/
-                     \\______/ |__/  \\__/   |__/   \\______/\s
-                    """);
-        }
-    }
 
-    public synchronized void rlog(Level level, Origin origin, Object... objects) {
-        if (level.ordinal() < this.level.ordinal()) {
-            return;
-        }
-        lock.lock();
-        long time = System.currentTimeMillis();
+        // Four colour stops — cyan → bright-cyan → bright-blue → magenta gradient
+        String ca = Ansi.esc + "1;96m";  // bold bright-cyan
+        String cb = Ansi.esc + "1;36m";  // bold cyan
+        String cc = Ansi.esc + "1;94m";  // bold bright-blue
+        String cd = Ansi.esc + "1;95m";  // bold bright-magenta
 
-        String start = String.format("\r<%d @ %s> [%s] ", time, origin.getOrigin(), level.getLevel());
-
-        for (var obj : objects) {
-            System.out.printf("%s%s", start, obj);
-            append(start, obj);
-        }
-        lock.unlock();
-    }
-
-    public synchronized void log(Level level, Origin origin, Object... objects) {
-        if (level.ordinal() < this.level.ordinal()) {
-            return;
-        }
-
-        lock.lock();
-
-        String start = String.format("<%d @ %s> [%s] ", System.currentTimeMillis(), origin.getOrigin(), level.getLevel());
-
-        PrintStream out = System.out;
-
-        for (var obj : objects) {
-            String color = String.format("%s%sm", Ansi.esc, switch (level) {
-                case WARNING -> BRIGHT_YELLOW.getCode();
-                case ERROR, FATAL -> BRIGHT_RED.getCode();
-                default -> RESET.getCode();
-            });
-            String reset = String.format("%s%sm", Ansi.esc, RESET.getCode());
-            if (obj instanceof Throwable) {
-                out.println();
-                append("\n");
-            }
-            out.printf("%s%s%s%s", color, start, obj, reset);
-            append(String.format("%s%s%s%s", color, start, obj, reset), String.format("%s%s", start, obj));
-            if (obj instanceof Throwable throwable) {
-                StringBuilder sb = new StringBuilder();
-                for (StackTraceElement ste : throwable.getStackTrace()) {
-                    String traceLine = String.format("%n\t%sat %s.%s(%s:%d)%s", color, ste.getClassName(), ste.getMethodName(), ste.getFileName(), ste.getLineNumber(), reset);
-                    sb.append(traceLine);
-                    out.print(traceLine);
-                }
-                append(sb.toString(), sb.toString());
-            }
-        }
-        lock.unlock();
-    }
-
-    public synchronized void logln(Level level, Origin origin, Object... objects) {
-        if (level.ordinal() < this.level.ordinal()) {
-            return;
-        }
-        lock.lock();
-        log(level, origin, objects);
         System.out.println();
-        append("\n");
-        lock.unlock();
+
+        if (Entrypoint.JNT_DISTRO == 2) {
+            System.out.println(ca + "    /$$$$$ /$$   /$$ /$$$$$$$$"          + RS);
+            System.out.println(ca + "   |__  $$| $$$ | $$|__  $$__/"          + RS);
+            System.out.println(cb + "      | $$| $$$$| $$   | $$   "          + RS);
+            System.out.println(cb + "      | $$| $$ $$ $$   | $$   "          + RS);
+            System.out.println(cc + " /$$  | $$| $$  $$$$   | $$   "          + RS);
+            System.out.println(cc + "| $$  | $$| $$\\  $$$   | $$   "          + RS);
+            System.out.println(cd + "|  $$$$$$/| $$ \\  $$   | $$   "          + RS);
+            System.out.println(cd + " \\______/ |__/  \\__/   |__/   "         + RS);
+        } else if (Entrypoint.JNT_DISTRO == 3) {
+            System.out.println(ca + "    /$$$$$ /$$   /$$ /$$$$$$$$ /$$$$$$"  + RS);
+            System.out.println(ca + "   |__  $$| $$$ | $$|__  $$__//$$__  $$" + RS);
+            System.out.println(cb + "      | $$| $$$$| $$   | $$  |__/  \\ $$" + RS);
+            System.out.println(cb + "      | $$| $$ $$ $$   | $$     /$$$$$/" + RS);
+            System.out.println(cc + " /$$  | $$| $$  $$$$   | $$    |___  $$" + RS);
+            System.out.println(cc + "| $$  | $$| $$\\  $$$   | $$   /$$  \\ $$"+ RS);
+            System.out.println(cd + "|  $$$$$$/| $$ \\  $$   | $$  |  $$$$$$/" + RS);
+            System.out.println(cd + " \\______/ |__/  \\__/   |__/   \\______/" + RS);
+        }
+
+        // Subtitle
+        System.out.println(DIM + "         java native transpiler  ·  v" + Entrypoint.JNT_DISTRO + RS);
+        System.out.println();
     }
 
-    private void append(String log, String raw) {
+    // ── Logging ────────────────────────────────────────────────────────────────
+
+    /**
+     * Carriage-return (in-place) log — used for progress updates that overwrite
+     * the current line. Same visual format as {@link #log} but prefixed with \r.
+     */
+    public synchronized void rlog(Level level, Origin origin, Object... objects) {
+        if (level.ordinal() < this.level.ordinal()) return;
+        lock.lock();
+        try {
+            String prefix = buildColorPrefix(level, origin);
+            String plain  = buildPlainPrefix(level, origin);
+            String msgC   = Ansi.esc + level.getAnsiColor();
+
+            for (var obj : objects) {
+                System.out.printf("\r%s%s%s%s", prefix, msgC, obj, RS);
+                append(plain + obj + "\n", plain + obj + "\n");
+            }
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * Inline log (no trailing newline). Pair with {@link #logln} or follow with
+     * {@link System#out#println()} when the line is complete.
+     */
+    public synchronized void log(Level level, Origin origin, Object... objects) {
+        if (level.ordinal() < this.level.ordinal()) return;
+        lock.lock();
+        try {
+            PrintStream out  = System.out;
+            String prefix    = buildColorPrefix(level, origin);
+            String plain     = buildPlainPrefix(level, origin);
+            String msgC      = Ansi.esc + level.getAnsiColor();
+
+            for (var obj : objects) {
+                if (obj instanceof Throwable) {
+                    out.println();
+                    append("\n");
+                    out.printf("%s%s%s%s", prefix, msgC, obj, RS);
+                    append(plain + obj, plain + String.valueOf(obj));
+
+                    Throwable throwable = (Throwable) obj;
+                    StackTraceElement[] trace = throwable.getStackTrace();
+                    for (int i = 0; i < trace.length; i++) {
+                        StackTraceElement ste = trace[i];
+                        // First frame in bold, rest dimmed
+                        String frameColor = (i == 0)
+                                ? Ansi.esc + "1;" + level.getAnsiColor()
+                                : Ansi.esc + "2;37m";
+                        String traceLine = String.format(
+                                "%n        %s  at %s.%s(%s:%d)%s",
+                                frameColor,
+                                ste.getClassName(), ste.getMethodName(),
+                                ste.getFileName(), ste.getLineNumber(),
+                                RS);
+                        String plainTrace = String.format(
+                                "%n        at %s.%s(%s:%d)",
+                                ste.getClassName(), ste.getMethodName(),
+                                ste.getFileName(), ste.getLineNumber());
+                        out.print(traceLine);
+                        append(traceLine, plainTrace);
+                    }
+                } else {
+                    out.printf("%s%s%s%s", prefix, msgC, obj, RS);
+                    append(prefix + msgC + obj + RS, plain + String.valueOf(obj));
+                }
+            }
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /** Log with a trailing newline (most common call site). */
+    public synchronized void logln(Level level, Origin origin, Object... objects) {
+        if (level.ordinal() < this.level.ordinal()) return;
+        lock.lock();
+        try {
+            log(level, origin, objects);
+            System.out.println();
+            append("\n");
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    // ── Prefix builders ────────────────────────────────────────────────────────
+
+    /**
+     * Builds the fully-colored prefix for a log line:
+     *
+     *   [dim]  HH:mm:ss.SSS  [reset] [dark-gray] │ [reset]
+     *   [bold+originColor] originName  [reset]
+     *   [levelColor] icon [reset]  [levelColor]
+     *
+     * Example (rendered):
+     *   12:34:56.261  │  metaphor   ›  (then message follows in level color)
+     */
+    private String buildColorPrefix(Level level, Origin origin) {
+        String timeStr    = LocalTime.now().format(TIME_FMT);
+        String originBold = Ansi.esc + "1;" + origin.getAnsiColor();
+        String levelC     = Ansi.esc + level.getAnsiColor();
+
+        return String.format(
+                "  %s%s%s  %s  %s%-8s%s  %s%s%s  ",
+                DIM, timeStr, RS,          // dim timestamp
+                SEP,                        // │ separator
+                originBold, origin.getShortName(), RS,   // bold-colored origin, padded to 8
+                levelC, level.getIcon(), RS              // colored level icon
+        );
+    }
+
+    /**
+     * Builds a plain (no ANSI) prefix for the log file dump:
+     *
+     *   HH:mm:ss.SSS  │  originName   icon  (then message follows)
+     */
+    private String buildPlainPrefix(Level level, Origin origin) {
+        String timeStr = LocalTime.now().format(TIME_FMT);
+        return String.format("  %s  │  %-8s  %s  ", timeStr, origin.getShortName(), level.getIcon());
+    }
+
+    // ── Internal append ────────────────────────────────────────────────────────
+
+    private void append(String colored, String raw) {
         output.append(raw);
-        copy.append(log);
+        copy.append(colored);
+    }
+
+    private void append(String both) {
+        output.append(both);
+        copy.append(both);
     }
 
     public void append(Object... objects) {
@@ -131,6 +212,8 @@ public class Logger {
             copy.append(obj);
         }
     }
+
+    // ── Public utilities ───────────────────────────────────────────────────────
 
     public String getLog() {
         String log = copy.toString();
