@@ -64,6 +64,7 @@ mutators:
       - dot-graph
       - array-rewriter
       - indy-rewriter
+      - runtime-patch
     transformers:
       mutilate-return:
         enabled: true
@@ -182,6 +183,9 @@ mutators:
 
       method-call-fix:
         enabled: false
+        
+      runtime-patch:
+        enabled: true
   jnt:
     order:
       - cleanup
