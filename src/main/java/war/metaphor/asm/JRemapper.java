@@ -31,24 +31,38 @@ public class JRemapper extends Remapper {
         }
     }
 
+    @Override
     public String mapMethodName(String owner, String name, String descriptor) {
         String remappedName = this.map(owner + '.' + name + descriptor);
         return remappedName == null ? name : remappedName;
     }
 
+    @Override
     public String mapAnnotationAttributeName(String descriptor, String name) {
         descriptor = Type.getType(descriptor).getInternalName();
         String remappedName = this.softMap(descriptor + '.' + name);
         return remappedName == null ? name : remappedName;
     }
 
+    @Override
     public String mapFieldName(String owner, String name, String descriptor) {
         String remappedName = this.map(owner + '.' + name + descriptor);
         return remappedName == null ? name : remappedName;
     }
 
+    @Override
     public String map(String key) {
-        return this.mapping.get(key);
+        String result = this.mapping.get(key);
+        if (result != null) return result;
+
+        // Fallback: handle cases where package path may differ or be partially stripped
+        for (Map.Entry<String, String> entry : this.mapping.entrySet()) {
+            if (entry.getKey().equals(key) || entry.getKey().endsWith("/" + key)) {
+                return entry.getValue();
+            }
+        }
+
+        return null;
     }
 
     @Override
