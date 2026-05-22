@@ -97,7 +97,6 @@ public class Metaphor {
                 .mutator("watermark", WatermarkMutator.class)
 
                 .mutator("strip", StripMutator.class)
-                .mutator("fake-class", FakeClassTransformer.class)
 
                 .mutator("dot-graph", DotExportMutator.class)
 
