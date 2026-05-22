@@ -67,8 +67,10 @@ public class Metaphor {
                 .mutator("main-call-check", MainCallCheckMutator.class)
                 .mutator("call-graph", CallGraphIntegrityMutator.class)
                 .mutator("method-integrity", MethodIntegrityMutator.class)
-                .mutator("anti-debug",        AntiDebugMutator.class) 
-                .mutator("anti-tamper", AntiTamperMutator.class)
+            
+                .mutator("anti-debug",  AntiDebugTransformer.class) 
+                .mutator("anti-tamper", AntiTamperTransformer.class)
+                .mutator("anti-tamper", AntiDumpTransformer.class)
 
                 .mutator("string.poly", StringMutator.class)
                 .mutator("string.poly2", NewStringMutator.class)
