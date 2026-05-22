@@ -77,6 +77,7 @@ public class Metaphor {
                 .mutator("string.light", LightStringMutator.class)
                 .mutator("string.split", StringSplitMutator.class)
                 .mutator("string.stack", StringStackTransformer.class)
+                .mutator("ahegao", AhegaoTransformer.class)
             
                 .mutator("flow.break", BlockBreakMutator.class)
                 .mutator("flow.flattening", ControlFlowFlatteningMutator.class)
