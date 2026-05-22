@@ -113,12 +113,17 @@ mutators:
 
       anti-debug:
         enabled: true
-        reaction: exit
+        reaction: exit      #exit| throw
         check-jdwp: true
         check-agents: true
         check-tools: true
         check-threads: true
         injection-chance: 30
+        
+      anti-tamper:
+        enabled: true
+        reaction: exit         # exit | throw
+        injection-chance: 20   # keep low to avoid method-too-large
 
       method-integrity:
         enabled: false
