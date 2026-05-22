@@ -1,4 +1,4 @@
-package war.metaphor.mutator.misc;
+package war.metaphor.mutator.rename;
 
 import war.configuration.ConfigurationSection;
 import war.jar.JarResource;
