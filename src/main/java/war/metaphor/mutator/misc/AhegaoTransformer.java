@@ -1,7 +1,6 @@
 package war.metaphor.mutator.misc;
 
 import org.objectweb.asm.Opcodes;
-import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.*;
 import war.configuration.ConfigurationSection;
 import war.jnt.annotate.Level;
@@ -14,11 +13,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
-
- /*       transformers:
- *         ahegao:
- *           enabled: true
- */
 @Stability(Level.HIGH)
 public class AhegaoTransformer extends Mutator {
 
@@ -31,9 +25,9 @@ public class AhegaoTransformer extends Mutator {
     @Override
     public void run(ObfuscatorContext ctx) {
         for (JClassNode classNode : ctx.getClasses()) {
-            if (classNode.isExempt())    continue;
-            if (classNode.isInterface()) continue;
-            if (classNode.isEnum())      continue;
+            if (classNode.isExempt())     continue;
+            if (classNode.isInterface())  continue;
+            if (classNode.isEnum())       continue;
             if (classNode.isAnnotation()) continue;
 
             injectIntoClass(classNode);
@@ -41,56 +35,54 @@ public class AhegaoTransformer extends Mutator {
     }
 
     private void injectIntoClass(JClassNode classNode) {
-        String fieldName = DEFAULT_FIELD_NAME;
-        while (classNode.fields.stream().anyMatch(f -> ((FieldNode) f).name.equals(fieldName + ""))) {
-            fieldName += (char) ThreadLocalRandom.current().nextInt('a', 'z' + 1);
-        }
         final String chosenName = resolveUniqueName(classNode, DEFAULT_FIELD_NAME);
-        FieldNode field = new FieldNode(
+
+        classNode.fields.add(new FieldNode(
                 Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC,
                 chosenName,
                 "[Ljava/lang/String;",
                 null,
                 null
-        );
-        classNode.fields.add(field);
-        String[] array = AHEGAOS.get(ThreadLocalRandom.current().nextInt(AHEGAOS.size()));
-
-        //   nothing_to_see_here = new String[array.length];
-        //   nothing_to_see_here[0] = "..."; ...
-        InsnList insns = new InsnList();
-        insns.add(new IntInsnNode(Opcodes.BIPUSH, array.length));
-        insns.add(new TypeInsnNode(Opcodes.ANEWARRAY, "java/lang/String"));
-        insns.add(new FieldInsnNode(
-                Opcodes.PUTSTATIC,
-                classNode.name,
-                chosenName,
-                "[Ljava/lang/String;"
         ));
 
+        String[] array = AHEGAOS.get(ThreadLocalRandom.current().nextInt(AHEGAOS.size()));
+
+        InsnList insns = new InsnList();
+
+        // new String[array.length]  →  PUTSTATIC chosenName
+        insns.add(new IntInsnNode(Opcodes.BIPUSH, array.length));
+        insns.add(new TypeInsnNode(Opcodes.ANEWARRAY, "java/lang/String"));
+        insns.add(new FieldInsnNode(Opcodes.PUTSTATIC, classNode.name, chosenName, "[Ljava/lang/String;"));
+
+        // chosenName[i] = array[i]
         for (int i = 0; i < array.length; i++) {
-            insns.add(new FieldInsnNode(
-                    Opcodes.GETSTATIC,
-                    classNode.name,
-                    chosenName,
-                    "[Ljava/lang/String;"
-            ));
+            insns.add(new FieldInsnNode(Opcodes.GETSTATIC, classNode.name, chosenName, "[Ljava/lang/String;"));
             insns.add(pushInt(i));
             insns.add(new LdcInsnNode(array[i]));
             insns.add(new InsnNode(Opcodes.AASTORE));
         }
-        MethodNode clinit = classNode.getStaticInit();
-        clinit.instructions.insert(insns);
+
+        classNode.getStaticInit().instructions.insert(insns);
     }
 
-    /** Returns a field name that is not already used in this class. */
+    /**
+     * Returns a field name not already present in this class.
+     * Snapshot pattern: capture current candidate as a final local
+     * before passing it into the lambda, then reassign the mutable
+     * variable only outside the lambda scope.
+     */
     private static String resolveUniqueName(JClassNode classNode, String base) {
         String name = base;
-        while (classNode.fields.stream().anyMatch(f -> ((FieldNode) f).name.equals(name))) {
+        while (true) {
+            final String candidate = name;   // effectively final snapshot for lambda
+            boolean taken = classNode.fields.stream()
+                    .anyMatch(f -> ((FieldNode) f).name.equals(candidate));
+            if (!taken) return candidate;
             name += (char) ThreadLocalRandom.current().nextInt('a', 'z' + 1);
         }
-        return name;
     }
+
+    /** Most compact opcode for a given int constant. */
     private static AbstractInsnNode pushInt(int value) {
         if (value >= -1 && value <= 5)
             return new InsnNode(Opcodes.ICONST_0 + value);
@@ -215,4 +207,3 @@ public class AhegaoTransformer extends Mutator {
             }
     );
 }
-
