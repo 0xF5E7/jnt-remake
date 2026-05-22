@@ -17,7 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Anti-Debug / Anti-Agent Mutator
+ * Anti-Debug / Anti-Agent Transformer
  *
  * Injects runtime checks that detect and respond to hostile analysis environments:
  *   1. JDWP debugger attachment  (via JVM input arguments)
@@ -49,7 +49,7 @@ import java.util.List;
  *     injection-chance: 30    # % of eligible methods to inject guard call into
  */
 @Stability(Level.HIGH)
-public class AntiDebugMutator extends Mutator {
+public class AntiDebugTransformer extends Mutator {
 
     private static final String GUARD_CLASS = "dev/ark/guard/AntiDebug";
     private static final int    VERSION     = V11;
@@ -61,7 +61,7 @@ public class AntiDebugMutator extends Mutator {
     private final boolean checkThreads;
     private final int     injectionChance;
 
-    public AntiDebugMutator(ObfuscatorContext base, ConfigurationSection config) {
+    public AntiDebugTransformer(ObfuscatorContext base, ConfigurationSection config) {
         super(base, config);
         this.reaction        = config == null ? "exit"  : config.getString("reaction", "exit");
         this.checkJdwp       = config == null || config.getBoolean("check-jdwp", true);
