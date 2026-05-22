@@ -40,19 +40,20 @@ mutators:
       - dot-graph
       - inlining
       - field-initialize
-      - string.stack
       - lift-constructors
       - internal-class-integrator
       - unused-method-remover
       - unused-class-remover
       #      - main-call-check
       #      - method-integrity
+      - string.stack
+      - string.split
       - string.light  #working
     #  - string.poly
     #  - string.pooly2  #working
     #  - ahegao  ## not wrorking  
       - flow.shuffle
-   #  - flow.break
+    # - flow.break
       - flow.traps
       - method-split
       - flow.flattening
@@ -63,7 +64,7 @@ mutators:
       - number.table
       - call-graph
       - watermark
-      - anti-tamper
+     # - anti-tamper
       - strip
       - optimizer
       - dot-graph
@@ -125,7 +126,7 @@ mutators:
         injection-chance: 20
 
       anti-tamper:
-        enabled: true
+        enabled: false
         reaction: exit         # exit | throw
         injection-chance: 20   # keep low to avoid method-too-large
 
@@ -154,7 +155,7 @@ mutators:
         enabled: true
         min-length: 2
         max-length: 64     # keep low — each char = ~4 instructions
-        xor-key: 0        # set e.g. 0x5A to hide char values in bytecode to o
+        xor-key: 0x5A        # set e.g. 0x5A to hide char values in bytecode to o
 
       ahegao:
         enabled: false
@@ -237,6 +238,6 @@ mutators:
       enabled: true
       chance: 100
 
-    intrinsic: true
+    intrinsic: false
 
     traceless: true
