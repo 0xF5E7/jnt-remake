@@ -52,7 +52,6 @@ mutators:
     #  - string.poly
     #  - string.pooly2  #working
     #  - ahegao  ## not wrorking  
-      - flow.shuffle
     # - flow.break
       - flow.traps
       - method-split
