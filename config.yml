@@ -159,6 +159,14 @@ mutators:
       ahegao:
         enabled: false
 
+      string.split:
+        enabled: true
+        min-parts: 3            # split every string into at least 3 fragments
+        max-parts: 6
+        min-length: 3           # split even short strings
+        chance: 100
+#---------------------
+
       ref:
         enabled: false
 
