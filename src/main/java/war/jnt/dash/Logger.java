@@ -57,14 +57,12 @@ public class Logger {
             System.out.println(cd + "|  $$$$$$/| $$ \\  $$   | $$   "          + RS);
             System.out.println(cd + " \\______/ |__/  \\__/   |__/   "         + RS);
         } else if (Entrypoint.JNT_DISTRO == 3) {
-            System.out.println(ca + "    /$$$$$ /$$   /$$ /$$$$$$$$ /$$$$$$"  + RS);
-            System.out.println(ca + "   |__  $$| $$$ | $$|__  $$__//$$__  $$" + RS);
-            System.out.println(cb + "      | $$| $$$$| $$   | $$  |__/  \\ $$" + RS);
-            System.out.println(cb + "      | $$| $$ $$ $$   | $$     /$$$$$/" + RS);
-            System.out.println(cc + " /$$  | $$| $$  $$$$   | $$    |___  $$" + RS);
-            System.out.println(cc + "| $$  | $$| $$\\  $$$   | $$   /$$  \\ $$"+ RS);
-            System.out.println(cd + "|  $$$$$$/| $$ \\  $$   | $$  |  $$$$$$/" + RS);
-            System.out.println(cd + " \\______/ |__/  \\__/   |__/   \\______/" + RS);
+            System.out.println(ca + "      _              __        ___   ______   ________  " + RS);
+            System.out.println(ca + "     / \\            [  |  _  .'   `.|_   _ \\ |_   __  | " + RS);
+            System.out.println(ca + "    / _ \\     _ .--. | | / ]/  .-.  \\ | |_) |  | |_ \\_| " + RS);
+            System.out.println(ca + "   / ___ \\   [ `/'\\]| '' < | |   | | |  __'.  |  _|    " + RS);
+            System.out.println(cb + " _/ /   \\ \\_  | |    | |`\\ \\\\  `-'  /_| |__) |_| |_     " + RS);
+            System.out.println(cb + "|____| |____|[___]  [__|  \\_]`.___.'|_______/|_____|    " + RS);
         }
 
         // Subtitle
