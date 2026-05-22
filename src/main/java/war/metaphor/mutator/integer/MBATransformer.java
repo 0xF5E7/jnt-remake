@@ -1,4 +1,4 @@
-package war.metaphor.mutator.data.integer;
+package war.metaphor.mutator.integer;
 
 import org.objectweb.asm.tree.*;
 import war.configuration.ConfigurationSection;
