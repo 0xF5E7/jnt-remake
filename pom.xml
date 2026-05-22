@@ -41,12 +41,6 @@
             <artifactId>snakeyaml</artifactId>
             <version>LATEST</version>
         </dependency>
-
-        <!--
-            ASM is kept as system scope so javac/kotlinc can compile against it.
-            The maven-dependency-plugin below unpacks its classes into target/classes
-            so they get bundled by jar-with-dependencies.
-        -->
         <dependency>
             <groupId>org.ow2.asm</groupId>
             <artifactId>asm</artifactId>
@@ -94,7 +88,7 @@
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
-            <version>1.18.38</version>
+            <version>1.18.46</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
@@ -215,12 +209,6 @@
                     </compilerArgs>
                 </configuration>
             </plugin>
-
-            <!--
-                Unpack the system-scoped asm.jar into target/classes BEFORE
-                the assembly plugin runs. jar-with-dependencies then sees those
-                classes as part of the project and bundles them.
-            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-dependency-plugin</artifactId>
