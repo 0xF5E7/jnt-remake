@@ -13,7 +13,7 @@ import war.metaphor.mutator.data.strings.poly2.init.Initializer;
 import war.metaphor.mutator.flow.BlockBreakMutator;
 import war.metaphor.mutator.flow.ControlFlowFlatteningMutator;
 import war.metaphor.mutator.loader.IntegrateLoaderMutator;
-import war.metaphor.mutator.misc.ClassRenameMutator;
+import war.metaphor.mutator.rename.ClassRenameMutator;
 import war.metaphor.tree.JClassNode;
 import war.metaphor.util.Pair;
 import war.metaphor.util.asm.BytecodeUtil;
