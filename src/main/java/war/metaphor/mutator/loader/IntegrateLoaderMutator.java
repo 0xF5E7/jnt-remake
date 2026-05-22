@@ -15,7 +15,7 @@ import war.metaphor.base.ObfuscatorContext;
 import war.metaphor.mutator.Mutator;
 import war.metaphor.mutator.flow.BlockBreakMutator;
 import war.metaphor.mutator.flow.ControlFlowFlatteningMutator;
-import war.metaphor.mutator.misc.ClassRenameMutator;
+import war.metaphor.mutator.rename.ClassRenameMutator;
 import war.metaphor.tree.JClassNode;
 
 import java.io.File;
