@@ -3,8 +3,7 @@ package war.metaphor;
 import war.configuration.ConfigurationSection;
 import war.jar.JarReader;
 import war.metaphor.base.ObfuscatorContext;
-import war.metaphor.mutator.data.integer.IntegerTableMutator;
-import war.metaphor.mutator.data.integer.SaltingIntegerMutator;
+import war.metaphor.mutator.integer.*;
 import war.metaphor.mutator.data.strings.LightStringMutator;
 import war.metaphor.mutator.data.strings.StringMutator;
 import war.metaphor.mutator.data.strings.StringSplitMutator;
@@ -87,8 +86,8 @@ public class Metaphor {
                 .mutator("flow.traps", TrapEdgeMutator.class)
                 .mutator("flow.opaque", OpaquePredicatesMutator.class)
             
-                .mutator("number.salt", SaltingIntegerMutator.class)
-                .mutator("number.table", IntegerTableMutator.class)
+                .mutator("number.salt", SaltingIntegerTransformer.class)
+                .mutator("number.table", IntegerTableTransformer.class)
 
                 .mutator("ref", ReferenceMutator.class)
 
