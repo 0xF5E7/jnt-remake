@@ -61,7 +61,7 @@ import java.util.zip.CRC32;
  *     - watermark
  */
 @Stability(Level.HIGH)
-public class AntiTamperMutator extends Mutator {
+public class AntiTamperTransformer extends Mutator {
 
     // ── constants ────────────────────────────────────────────────────────────
 
@@ -84,7 +84,7 @@ public class AntiTamperMutator extends Mutator {
 
     // ─────────────────────────────────────────────────────────────────────────
 
-    public AntiTamperMutator(ObfuscatorContext base, ConfigurationSection config) {
+    public AntiTamperTransformer(ObfuscatorContext base, ConfigurationSection config) {
         super(base, config);
         this.reaction        = config == null ? "exit" : config.getString("reaction", "exit");
         this.injectionChance = config == null ? 20     : config.getInt("injection-chance", 20);
