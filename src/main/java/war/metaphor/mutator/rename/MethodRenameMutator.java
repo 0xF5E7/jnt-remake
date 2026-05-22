@@ -75,8 +75,8 @@ public class MethodRenameMutator extends MappingMutator {
                     mapping.put(id, newName);
                 }
 
-                if (method.signature == null || !method.signature.startsWith("pass::jnt")) {
-                    method.signature = "pass::jnt:" + Base64.getEncoder().encodeToString(method.name.getBytes());
+                if (method.signature == null || !method.signature.startsWith("plot::ark")) {
+                    method.signature = "plot::ark:" + Base64.getEncoder().encodeToString(method.name.getBytes());
                 }
 
                 base.getRepository().add(new Mapping(
