@@ -75,7 +75,7 @@ import java.util.concurrent.ThreadLocalRandom;
  * @author jnt
  */
 @Stability(Level.HIGH)
-public class FakeClassMutator extends Mutator {
+public class FakeClassTransformer extends Mutator {
 
     // ── config ────────────────────────────────────────────────────────────────
 
@@ -137,7 +137,7 @@ public class FakeClassMutator extends Mutator {
     // Constructor
     // ─────────────────────────────────────────────────────────────────────────
 
-    public FakeClassMutator(ObfuscatorContext base, ConfigurationSection config) {
+    public FakeClassTransformer(ObfuscatorContext base, ConfigurationSection config) {
         super(base, config);
         this.count          = config == null ? 50    : config.getInt("count", 50);
         this.methodsMin     = config == null ? 2     : config.getInt("methods-min", 2);
