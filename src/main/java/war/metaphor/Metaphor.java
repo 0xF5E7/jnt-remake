@@ -88,6 +88,8 @@ public class Metaphor {
             
                 .mutator("number.salt", SaltingIntegerTransformer.class)
                 .mutator("number.table", IntegerTableTransformer.class)
+                .mutator("mba", MBATransformer.class)
+                
 
                 .mutator("ref", ReferenceMutator.class)
 
