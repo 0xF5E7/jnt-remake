@@ -28,11 +28,11 @@ import java.util.Set;
  * @see war.metaphor.mutator.data.strings.StringMutator
  * @author Jan
  */
-public final class NewStringMutator extends Mutator
+public final class NewStringTransformer extends Mutator
 {
     private boolean needsCryptoClass;
 
-    public NewStringMutator(final ObfuscatorContext base,
+    public NewStringTransformer(final ObfuscatorContext base,
                             final ConfigurationSection config)
     {
         super(base, config);
@@ -52,13 +52,10 @@ public final class NewStringMutator extends Mutator
             boolean added = false;
 
             final DecryptionMethod method = new DecryptionMethod(jClassNode);
-
             final MethodNode methodNode = method.toMethodNode();
-
             for (final MethodNode node : jClassNode.methods)
             {
                 if (jClassNode.isExempt(node)) continue;
-
                 for (final AbstractInsnNode instruction : node.instructions)
                 {
                     if (instruction instanceof LdcInsnNode ldc)
@@ -67,7 +64,6 @@ public final class NewStringMutator extends Mutator
                         {
                             added = true;
                             final InsnList insns = makeCall(jClassNode, method, methodNode, str);
-
                             node.instructions.insertBefore(instruction, insns);
                             node.instructions.remove(instruction);
                         }
@@ -102,17 +98,7 @@ public final class NewStringMutator extends Mutator
                 JClassNode cn = new JClassNode();
                 cr.accept(cn, ClassReader.SKIP_FRAMES);
                 cn.version = V1_8;
-
-                // i am fairly certain this is not needed
-/*
-                BlockBreakMutator blockBreakMutator = new BlockBreakMutator(base, null);
-                ControlFlowFlatteningMutator flatteningMutator = new ControlFlowFlatteningMutator(base, null);
-
-                blockBreakMutator.run(ObfuscatorContext.builder().classes(Set.of(cn)).build());
-                flatteningMutator.run(ObfuscatorContext.builder().classes(Set.of(cn)).build());
-*/
                 base.addClass(cn);
-
                 cn.name = libPath + "/crypto/Crypto";
                 ClassRenameMutator renamer = new ClassRenameMutator(base, null);
                 renamer.map(base, Map.of("war/jnt/crypto/Crypto", libPath + "/crypto/Crypto"));
@@ -133,12 +119,9 @@ public final class NewStringMutator extends Mutator
 
             BlockBreakMutator blockBreakMutator = new BlockBreakMutator(base, null);
             ControlFlowFlatteningMutator flatteningMutator = new ControlFlowFlatteningMutator(base, null);
-
             blockBreakMutator.run(ObfuscatorContext.builder().classes(Set.of(cn)).build());
             flatteningMutator.run(ObfuscatorContext.builder().classes(Set.of(cn)).build());
-
             base.addClass(cn);
-
             cn.name = libPath + "/base64/Base64";
             ClassRenameMutator renamer = new ClassRenameMutator(base, null);
             renamer.map(base, Map.of("war/jnt/base64/Base64", libPath + "/base64/Base64"));
