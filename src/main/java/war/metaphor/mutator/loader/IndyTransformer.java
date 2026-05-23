@@ -44,6 +44,13 @@ public class IndyTransformer extends Mutator {
                 if (classNode.isExempt(method)) continue;
                 if (Internal.disallowedTranspile(classNode, method)) continue;
 
+                // Quick pre-check: skip methods that have no invokedynamic at all
+                boolean hasIndy = false;
+                for (AbstractInsnNode insn : method.instructions) {
+                    if (insn instanceof InvokeDynamicInsnNode) { hasIndy = true; break; }
+                }
+                if (!hasIndy) continue;
+
                 BytecodeUtil.computeMaxLocals(method);
 
                 int vCallSite = method.maxLocals++;
@@ -224,6 +231,18 @@ public class IndyTransformer extends Mutator {
 
                         method.instructions.insert(node, list);
                         method.instructions.remove(node);
+                    }
+                }
+
+                // Strip every FrameNode that flow-obfuscation mutators may have left in this
+                // method. The instruction layout has completely changed after indy-rewriting,
+                // so any existing frames are now at wrong positions.
+                // COMPUTE_FRAMES will regenerate correct frames during class serialisation.
+                // If COMPUTE_FRAMES falls back to COMPUTE_MAXS, stale frames must NOT be
+                // emitted verbatim — that is exactly what causes the VerifyError.
+                for (AbstractInsnNode insn : method.instructions.toArray()) {
+                    if (insn instanceof FrameNode) {
+                        method.instructions.remove(insn);
                     }
                 }
             }
