@@ -13,272 +13,243 @@ public class ArithmeticUnit implements Opcodes {
     public static void process(final InnerCache ic, InsnNode insn, UnitContext ctx, TempJumpVM tjvm) {
         String ae = ic.FindClass("java/lang/ArithmeticException");
 
+        // ── Division-by-zero guards ───────────────────────────────────────────
         switch (insn.getOpcode()) {
-            case IREM, IDIV -> {
-                ctx.fmtAppend("\tif (stack[%s].i == 0) { (*env)->ThrowNew(env, %s, \"integer division by zero\"); goto %s; }\n",
-                        ctx.getTracker().dump(), ae, ctx.handlerLabel);
-            }
-            case LREM, LDIV -> {
-                ctx.fmtAppend("\tif (stack[%s].j == 0) { (*env)->ThrowNew(env, %s, \"long division by zero\"); goto %s; }\n",
-                        ctx.getTracker().dump(), ae, ctx.handlerLabel);
-            }
+            case IREM, IDIV -> ctx.fmtAppend(
+                    "\tif (stack[%s].i == 0) { (*env)->ThrowNew(env, %s, \"integer division by zero\"); goto %s; }\n",
+                    ctx.getTracker().dump(), ae, ctx.handlerLabel);
+            case LREM, LDIV -> ctx.fmtAppend(
+                    "\tif (stack[%s].j == 0) { (*env)->ThrowNew(env, %s, \"long division by zero\"); goto %s; }\n",
+                    ctx.getTracker().dump(), ae, ctx.handlerLabel);
         }
-        switch (insn.getOpcode()) {
-            case IADD -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
 
-                ctx.getBuilder().append(tjvm.getCode(computedA, computedB, computedPush, EnumVMOperation.ADD));
+        switch (insn.getOpcode()) {
+
+            // ── int (32-bit) — routed through the VM ─────────────────────────
+            case IADD -> {
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(tjvm.getCode(a, b, p, EnumVMOperation.ADD));
             }
             case ISUB -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.getBuilder().append(tjvm.getCode(computedA, computedB, computedPush, EnumVMOperation.SUBTRACT));
-            }
-            case IDIV -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.getBuilder().append(tjvm.getCode(computedA, computedB, computedPush, EnumVMOperation.DIVIDE));
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(tjvm.getCode(a, b, p, EnumVMOperation.SUBTRACT));
             }
             case IMUL -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.getBuilder().append(tjvm.getCode(computedA, computedB, computedPush, EnumVMOperation.MULTIPLY));
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(tjvm.getCode(a, b, p, EnumVMOperation.MULTIPLY));
             }
-            case ISHL -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.getBuilder().append(tjvm.getCode(computedA, computedB, computedPush, EnumVMOperation.SHIFT_LEFT));
-            }
-            case DREM -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.fmtAppend("\t%s.d = fmod(%s.d, %s.d);\n", computedPush, computedB, computedA);
-            }
-            case FREM -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.fmtAppend("\t%s.f = fmod(%s.f, %s.f);\n", computedPush, computedB, computedA);
+            case IDIV -> {
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(tjvm.getCode(a, b, p, EnumVMOperation.DIVIDE));
             }
             case IREM -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.getBuilder().append(tjvm.getCode(computedA, computedB, computedPush, EnumVMOperation.REMAINDER));
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(tjvm.getCode(a, b, p, EnumVMOperation.REMAINDER));
             }
-            case INEG -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.getBuilder().append(String.format("\t%s.i = -%s.i;\n", computedPush, computedA));
-            }
-            case IXOR -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.getBuilder().append(tjvm.getCode(computedA, computedB, computedPush, EnumVMOperation.XOR));
+            case ISHL -> {
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(tjvm.getCode(a, b, p, EnumVMOperation.SHIFT_LEFT));
             }
             case ISHR -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.getBuilder().append(tjvm.getCode(computedA, computedB, computedPush, EnumVMOperation.SHIFT_RIGHT));
-            }
-            case IAND -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.getBuilder().append(tjvm.getCode(computedA, computedB, computedPush, EnumVMOperation.AND));
-            }
-            case IOR -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.getBuilder().append(tjvm.getCode(computedA, computedB, computedPush, EnumVMOperation.OR));
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(tjvm.getCode(a, b, p, EnumVMOperation.SHIFT_RIGHT));
             }
             case IUSHR -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.getBuilder().append(tjvm.getCode(computedA, computedB, computedPush, EnumVMOperation.USHIFT_RIGHT));
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(tjvm.getCode(a, b, p, EnumVMOperation.USHIFT_RIGHT));
             }
-            case FADD -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.getBuilder().append(String.format("\t%s.f = %s.f + %s.f;\n", computedPush, computedB, computedA));
+            case IAND -> {
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(tjvm.getCode(a, b, p, EnumVMOperation.AND));
             }
-            case FSUB -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.getBuilder().append(String.format("\t%s.f = %s.f - %s.f;\n", computedPush, computedB, computedA));
+            case IOR -> {
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(tjvm.getCode(a, b, p, EnumVMOperation.OR));
             }
-            case FDIV -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.getBuilder().append(String.format("\t%s.f = %s.f / %s.f;\n", computedPush, computedB, computedA));
+            case IXOR -> {
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(tjvm.getCode(a, b, p, EnumVMOperation.XOR));
             }
-            case FMUL -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.getBuilder().append(String.format("\t%s.f = %s.f * %s.f;\n", computedPush, computedB, computedA));
+            case INEG -> {
+                String a = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(String.format("\t%s.i = -%s.i;\n", p, a));
             }
-            case FNEG -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
 
-                ctx.getBuilder().append(String.format("\t%s.f = -%s.f;\n", computedPush, computedA));
-
-            }
-            case DADD -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.getBuilder().append(String.format("\t%s.d = %s.d + %s.d;\n", computedPush, computedB, computedA));
-            }
-            case DSUB -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.getBuilder().append(String.format("\t%s.d = %s.d - %s.d;\n", computedPush, computedB, computedA));
-            }
-            case DMUL -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.getBuilder().append(String.format("\t%s.d = %s.d * %s.d;\n", computedPush, computedB, computedA));
-            }
-            case DDIV -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.getBuilder().append(String.format("\t%s.d = %s.d / %s.d;\n", computedPush, computedB, computedA));
-            }
-            case DNEG -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.getBuilder().append(String.format("\t%s.d = -%s.d;\n", computedPush, computedA));
-            }
+            // ── long (64-bit) — now routed through the VM ────────────────────
             case LADD -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.getBuilder().append(String.format("\t%s.j = ((julong)%s.j) + %s.j;\n", computedPush, computedB, computedA));
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(tjvm.getLongCode(a, b, p, EnumVMOperation.LADD));
             }
             case LSUB -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.getBuilder().append(String.format("\t%s.j = ((julong)%s.j) - %s.j;\n", computedPush, computedB, computedA));
-            }
-            case LDIV -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.getBuilder().append(String.format("\t%s.j = ((julong)%s.j) / %s.j;\n", computedPush, computedB, computedA));
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(tjvm.getLongCode(a, b, p, EnumVMOperation.LSUBTRACT));
             }
             case LMUL -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.getBuilder().append(String.format("\t%s.j = ((julong)%s.j) * %s.j;\n", computedPush, computedB, computedA));
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(tjvm.getLongCode(a, b, p, EnumVMOperation.LMULTIPLY));
             }
-            case LNEG -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.getBuilder().append(String.format("\t%s.j = -%s.j;\n", computedPush, computedA));
-            }
-            case LXOR -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.fmtAppend("\t%s.j = ((julong)%s.j) ^ %s.j;\n", computedPush, computedB, computedA);
-            }
-            case LAND -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.fmtAppend("\t%s.j = ((julong)%s.j) & %s.j;\n", computedPush, computedB, computedA);
-            }
-            case LOR -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.fmtAppend("\t%s.j = %s.j | %s.j;\n", computedPush, computedB, computedA);
+            case LDIV -> {
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(tjvm.getLongCode(a, b, p, EnumVMOperation.LDIVIDE));
             }
             case LREM -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.fmtAppend("\t%s.j = %s.j %% %s.j;\n", computedPush, computedB, computedA);
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(tjvm.getLongCode(a, b, p, EnumVMOperation.LREMAINDER));
+            }
+            case LXOR -> {
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(tjvm.getLongCode(a, b, p, EnumVMOperation.LXOR));
+            }
+            case LAND -> {
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(tjvm.getLongCode(a, b, p, EnumVMOperation.LAND));
+            }
+            case LOR -> {
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(tjvm.getLongCode(a, b, p, EnumVMOperation.LOR));
             }
             case LSHL -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-                ctx.fmtAppend("\t%s.j = (jlong)(((julong)%s.j) << (%s.i & 63));\n",
-                        computedPush, computedB, computedA);
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(tjvm.getLongCode(a, b, p, EnumVMOperation.LSHIFT_LEFT));
             }
             case LSHR -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.fmtAppend("\t%s.j = (jlong)((((julong)%s.j) >> (%s.i & 63)) | ((%s.j < 0 && (%s.i & 63)) ? (~(julong)0 << (64 - (%s.i & 63))) : 0));\n",
-                        computedPush, computedB, computedA, computedB, computedA, computedA);
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(tjvm.getLongCode(a, b, p, EnumVMOperation.LSHIFT_RIGHT));
             }
             case LUSHR -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
-                ctx.fmtAppend("\t%s.j = (((julong)%s.j)) >> (%s.i & 63);\n", computedPush, computedB, computedA);
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(tjvm.getLongCode(a, b, p, EnumVMOperation.LUSHIFT_RIGHT));
             }
-            case DCMPL -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
+            case LNEG -> {
+                String a = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(String.format("\t%s.j = -%s.j;\n", p, a));
+            }
 
+            // ── float (32-bit) — no VM, plain C ──────────────────────────────
+            case FADD -> {
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(String.format("\t%s.f = %s.f + %s.f;\n", p, b, a));
+            }
+            case FSUB -> {
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(String.format("\t%s.f = %s.f - %s.f;\n", p, b, a));
+            }
+            case FMUL -> {
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(String.format("\t%s.f = %s.f * %s.f;\n", p, b, a));
+            }
+            case FDIV -> {
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(String.format("\t%s.f = %s.f / %s.f;\n", p, b, a));
+            }
+            case FNEG -> {
+                String a = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(String.format("\t%s.f = -%s.f;\n", p, a));
+            }
+            case FREM -> {
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.fmtAppend("\t%s.f = fmod(%s.f, %s.f);\n", p, b, a);
+            }
+
+            // ── double (64-bit) — no VM, plain C ─────────────────────────────
+            case DADD -> {
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(String.format("\t%s.d = %s.d + %s.d;\n", p, b, a));
+            }
+            case DSUB -> {
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(String.format("\t%s.d = %s.d - %s.d;\n", p, b, a));
+            }
+            case DMUL -> {
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(String.format("\t%s.d = %s.d * %s.d;\n", p, b, a));
+            }
+            case DDIV -> {
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(String.format("\t%s.d = %s.d / %s.d;\n", p, b, a));
+            }
+            case DNEG -> {
+                String a = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.getBuilder().append(String.format("\t%s.d = -%s.d;\n", p, a));
+            }
+            case DREM -> {
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
+                ctx.fmtAppend("\t%s.d = fmod(%s.d, %s.d);\n", p, b, a);
+            }
+
+            // ── comparison opcodes ────────────────────────────────────────────
+            case DCMPL -> {
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
                 ctx.fmtAppend("/* DCMPL */\n");
                 ctx.fmtAppend("""
                     \tif (isnan(%s.d) || isnan(%s.d)) {
@@ -290,19 +261,12 @@ public class ArithmeticUnit implements Opcodes {
                     \t} else {
                     \t\t%s.i = 0;
                     \t}
-                    """,
-                        computedA, computedB, computedPush,
-                        computedB, computedA, computedPush,
-                        computedB, computedA, computedPush,
-                        computedPush
-                );
+                    """, a, b, p, b, a, p, b, a, p, p);
             }
-
             case DCMPG -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
                 ctx.fmtAppend("/* DCMPG */\n");
                 ctx.fmtAppend("""
                     \tif (isnan(%s.d) || isnan(%s.d)) {
@@ -314,35 +278,23 @@ public class ArithmeticUnit implements Opcodes {
                     \t} else {
                     \t\t%s.i = 0;
                     \t}
-                    """,
-                        computedA, computedB, computedPush,
-                        computedB, computedA, computedPush,
-                        computedB, computedA, computedPush,
-                        computedPush
-                );
+                    """, a, b, p, b, a, p, b, a, p, p);
             }
-
             case LCMP -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
                 ctx.fmtAppend("/* LCMP */\n");
                 ctx.fmtAppend("""
                     \t%s.i = (%s.j > %s.j) ? 1
                     \t\t: (%s.j < %s.j) ? -1
                     \t\t: 0;
-                    """,
-                        computedPush, computedB, computedA,
-                        computedB, computedA
-                );
+                    """, p, b, a, b, a);
             }
-
             case FCMPL -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
                 ctx.fmtAppend("/* FCMPL */\n");
                 ctx.fmtAppend("""
                     \tif (isnan(%s.f) || isnan(%s.f)) {
@@ -354,19 +306,12 @@ public class ArithmeticUnit implements Opcodes {
                     \t} else {
                     \t\t%s.i = 0;
                     \t}
-                    """,
-                        computedA, computedB, computedPush,
-                        computedB, computedA, computedPush,
-                        computedB, computedA, computedPush,
-                        computedPush
-                );
+                    """, a, b, p, b, a, p, b, a, p, p);
             }
-
             case FCMPG -> {
-                String computedA = Internal.computePop(ctx.getTracker());
-                String computedB = Internal.computePop(ctx.getTracker());
-                String computedPush = Internal.computePush(ctx.getTracker());
-
+                String a = Internal.computePop(ctx.getTracker());
+                String b = Internal.computePop(ctx.getTracker());
+                String p = Internal.computePush(ctx.getTracker());
                 ctx.fmtAppend("/* FCMPG */\n");
                 ctx.fmtAppend("""
                     \tif (isnan(%s.f) || isnan(%s.f)) {
@@ -378,26 +323,17 @@ public class ArithmeticUnit implements Opcodes {
                     \t} else {
                     \t\t%s.i = 0;
                     \t}
-                    """,
-                        computedA, computedB, computedPush,
-                        computedB, computedA, computedPush,
-                        computedB, computedA, computedPush,
-                        computedPush
-                );
+                    """, a, b, p, b, a, p, b, a, p, p);
             }
             case ARRAYLENGTH -> {
                 String popped = Internal.computePop(ctx.getTracker());
-                String pushed = Internal.computePush(ctx.getTracker());
-
+                String pushed  = Internal.computePush(ctx.getTracker());
                 final String npe = ic.FindClass("java/lang/NullPointerException");
-
                 ctx.fmtAppend("\tif (%s.l == NULL) { (*env)->ThrowNew(env, %s, \"null array for arraylength\"); goto %s; }\n",
                         popped, npe, ctx.handlerLabel);
-
                 ctx.fmtAppend("""
                         \t%s.i = (*env)->GetArrayLength(env, (jarray) %s.l);
-                        """,
-                        pushed, popped);
+                        """, pushed, popped);
             }
             default -> throw new IllegalStateException("Unexpected value: " + insn.getOpcode());
         }
