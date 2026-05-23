@@ -23,9 +23,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * @author jan
  */
 @Stability(Level.HIGH)
-public class StringMutator extends Mutator {
+public class StringTransformer extends Mutator {
 
-    public StringMutator(ObfuscatorContext base, ConfigurationSection config) {
+    public StringTransformer(ObfuscatorContext base, ConfigurationSection config) {
         super(base, config);
     }
 
