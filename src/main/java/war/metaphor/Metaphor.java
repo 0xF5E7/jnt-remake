@@ -21,7 +21,7 @@ import war.metaphor.mutator.parameter.ExchangeMutator;
 import war.metaphor.mutator.ref.ReferenceMutator;
 import war.metaphor.mutator.runtime.RuntimePatchMutator;
 import war.metaphor.mutator.splash.SplashScreenMutator;
-import war.metaphor.mutator.virtualization.VirtualizingMutator;
+import war.metaphor.mutator.virtualization.VirtualizingTransformer;
 
 import java.nio.file.Path;
 
@@ -97,13 +97,13 @@ public class Metaphor {
 
                 .mutator("dot-graph", DotExportMutator.class)
 
-                .mutator("virtualize", VirtualizingMutator.class)
+                .mutator("virtualize", VirtualizingTransformer.class)
 
                 .mutator("indy-rewriter", IndyTransformer.class)
 
                 .mutator("splash-screen", SplashScreenMutator.class)
 
-                .mutator("goto-to-jsr", GotoToJsrMutator.class)
+                //.mutator("goto-to-jsr", GotoToJsrMutator.class)
                 .mutator("array-rewriter", MultiNewArrayMutator.class)
 
                 .mutator("runtime-patch", RuntimePatchMutator.class)
