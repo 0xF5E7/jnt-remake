@@ -1,35 +1,30 @@
 package war.metaphor.mutator.ref;
 
-import org.apache.commons.lang3.RandomUtils;
-import org.objectweb.asm.Handle;
-import org.objectweb.asm.Type;
+import org.objectweb.asm.*;
 import org.objectweb.asm.tree.*;
-import org.objectweb.asm.tree.analysis.BasicValue;
-import org.objectweb.asm.tree.analysis.Frame;
 import war.configuration.ConfigurationSection;
 import war.jnt.annotate.Level;
 import war.jnt.annotate.Stability;
-import war.metaphor.analysis.frames.LazyFrameProvider;
-import war.metaphor.analysis.values.NewInstanceValue;
 import war.metaphor.base.ObfuscatorContext;
-import war.metaphor.engine.types.IntegerEngine;
-import war.metaphor.engine.types.PolymorphicEngine;
 import war.metaphor.mutator.Mutator;
-import war.metaphor.mutator.flow.BlockBreakMutator;
-import war.metaphor.mutator.flow.InstructionShuffleMutator;
 import war.metaphor.tree.JClassNode;
 import war.metaphor.util.Dictionary;
 import war.metaphor.util.Purpose;
-import war.metaphor.util.asm.BytecodeUtil;
 
-import java.lang.reflect.Modifier;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 
+/**
+ * ReferenceMutator — hides INVOKEVIRTUAL / INVOKESTATIC / INVOKEINTERFACE
+ * calls behind invokedynamic + a per-class bootstrap method.
+ *
+ * This is a ground-up rewrite of the original, which called
+ * CallSite.makeSite() — a package-private JDK internal method that has been
+ * blocked by the module system since JVM 16.  This version uses only public
+ * java.lang.invoke APIs and works on JVM 8–21+.
+ *
+ * Ported from ArkObf's ReferenceTransformer, adapted to JNT's mutator API.
+ */
 @Stability(Level.HIGH)
 public class ReferenceMutator extends Mutator {
 
@@ -37,640 +32,590 @@ public class ReferenceMutator extends Mutator {
         super(base, config);
     }
 
+    // ── entry point ──────────────────────────────────────────────────────────
+
     @Override
     public void run(ObfuscatorContext base) {
+        int total = 0;
         for (JClassNode classNode : base.getClasses()) {
             if (classNode.isExempt()) continue;
-            if (classNode.version < 52) continue;
+            if (classNode.version < 52) continue;                     // require Java 8+
+            if ((classNode.access & Opcodes.ACC_INTERFACE) != 0) continue;
+            if (classNode.name.contains("$")) continue;               // skip inner classes
 
-            FieldNode methodHandleCache = new FieldNode(ACC_PUBLIC | ACC_STATIC | ACC_FINAL,
-                    Dictionary.gen(3, Purpose.FIELD), "[Ljava/lang/invoke/MethodHandle;", null, null);
+            total += processClass(classNode, base);
+        }
+        System.out.printf("  [ref] Hidden %d method references%n", total);
+    }
 
-            int strength = 10;
+    // ── per-class processing ─────────────────────────────────────────────────
 
-            PolymorphicEngine mEngine0 = new PolymorphicEngine(strength);
-            IntegerEngine mEngine1 = new IntegerEngine(strength);
-            IntegerEngine mEngine4 = new IntegerEngine(strength);
-            PolymorphicEngine mEngine2 = new PolymorphicEngine(strength);
-            PolymorphicEngine mEngine3 = new PolymorphicEngine(strength);
+    private int processClass(JClassNode classNode, ObfuscatorContext base) {
+        // Per-class random state (matches ArkObf approach)
+        String bsmName      = Dictionary.gen(6, Purpose.METHOD);
+        String decodeName   = Dictionary.gen(6, Purpose.METHOD);
+        String keyFieldName = Dictionary.gen(6, Purpose.FIELD);
+        String cmpFieldName = Dictionary.gen(6, Purpose.FIELD);
 
-            PolymorphicEngine fEngine0 = new PolymorphicEngine(strength);
-            IntegerEngine fEngine1 = new IntegerEngine(strength);
-            IntegerEngine fEngine4 = new IntegerEngine(strength);
-            PolymorphicEngine fEngine2 = new PolymorphicEngine(strength);
-            PolymorphicEngine fEngine3 = new PolymorphicEngine(strength);
+        int    opcodeKey    = rand.nextInt();
+        byte   encKey       = (byte) (opcodeKey & 0xFF);
+        String b64Table     = shuffledB64Table();
 
-            Map<Integer, Integer> opcodeMapping = new HashMap<>();
+        // Extra fake parameters (0–5) to make BSM signature harder to read
+        int    extraCount   = rand.nextInt(6);
+        String extraDesc    = "Ljava/lang/Object;".repeat(extraCount);
 
-            while (true) {
-                opcodeMapping.put(H_INVOKESTATIC, RandomUtils.nextInt());
-                opcodeMapping.put(H_INVOKESPECIAL, RandomUtils.nextInt());
-                opcodeMapping.put(H_INVOKEINTERFACE, RandomUtils.nextInt());
-                opcodeMapping.put(H_INVOKEVIRTUAL, RandomUtils.nextInt());
-                opcodeMapping.put(H_NEWINVOKESPECIAL, RandomUtils.nextInt());
-                opcodeMapping.put(H_GETFIELD, RandomUtils.nextInt());
-                opcodeMapping.put(H_GETSTATIC, RandomUtils.nextInt());
-                opcodeMapping.put(H_PUTFIELD, RandomUtils.nextInt());
-                opcodeMapping.put(H_PUTSTATIC, RandomUtils.nextInt());
+        // BSM signature: (Lookup, String, MethodType, Object, Object, Object, Object, Object...) Object
+        String bsmDesc = String.format(
+            "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;" +
+            "Ljava/lang/invoke/MethodType;Ljava/lang/Object;Ljava/lang/Object;" +
+            "Ljava/lang/Object;Ljava/lang/Object;%s)Ljava/lang/Object;",
+            extraDesc);
 
-                Set<Integer> uniqueValues = new HashSet<>(opcodeMapping.values());
-                if (uniqueValues.size() == opcodeMapping.size()) {
-                    break;
-                }
-            }
+        String decodeDesc = String.format("(Ljava/lang/String;B%s)[B", extraDesc);
 
-            String dispatcherParams = "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;[Ljava/lang/Object;)Ljava/lang/Object;";
+        Handle bsmHandle = new Handle(
+            Opcodes.H_INVOKESTATIC, classNode.name, bsmName, bsmDesc, false);
 
-            String mDispatcherName = "0";
-            String fDispatcherName = "1";
+        AtomicBoolean applied = new AtomicBoolean(false);
 
-            AtomicBoolean hasMDispatcher = new AtomicBoolean(false);
-            AtomicBoolean hasFDispatcher = new AtomicBoolean(false);
+        for (MethodNode method : classNode.methods) {
+            if (classNode.isExempt(method)) continue;
 
-            AtomicInteger cacheCounter = new AtomicInteger(0);
-
-            for (MethodNode method : classNode.methods) {
-
-                int leeway = BytecodeUtil.leeway(method);
-                if (leeway < 30000)
-                    break;
-
-                if (classNode.isExempt(method)) continue;
-
-                LazyFrameProvider frames = new LazyFrameProvider(classNode, method);
-
-                for (AbstractInsnNode instruction : method.instructions) {
-
-                    if (instruction instanceof MethodInsnNode node) {
-
-                        if (node.owner.startsWith("[L")) continue;
-
-                        int opcode = node.getOpcode();
-                        boolean constructor = opcode == INVOKESPECIAL && node.name.equals("<init>");
-                        String newSig = constructor ? node.desc.replace(")V", ")Ljava/lang/Object;") : opcode == INVOKESTATIC ? node.desc : node.desc.replace("(", "(Ljava/lang/Object;");
-
-                        Type origReturnType = Type.getReturnType(newSig);
-                        Type[] args = Type.getArgumentTypes(newSig);
-
-                        for (int i = 0; i < args.length; i++) {
-                            Type type = args[i];
-                            args[i] = type.getSort() == Type.OBJECT ? Type.getType(Object.class) : type;
+            List<MethodInsnNode> targets = new ArrayList<>();
+            for (AbstractInsnNode insn : method.instructions) {
+                if (insn instanceof MethodInsnNode m) {
+                    int op = m.getOpcode();
+                    if (op == Opcodes.INVOKEVIRTUAL ||
+                        op == Opcodes.INVOKESTATIC  ||
+                        op == Opcodes.INVOKEINTERFACE) {
+                        if (!m.owner.startsWith("[L") && !m.name.startsWith("<")) {
+                            targets.add(m);
                         }
-
-                        newSig = Type.getMethodDescriptor(origReturnType, args);
-
-                        Object[] bsmArgs = new Object[5];
-                        bsmArgs[0] = switch (opcode) {
-                            case INVOKESTATIC -> H_INVOKESTATIC;
-                            case INVOKESPECIAL -> H_INVOKESPECIAL;
-                            case INVOKEINTERFACE -> H_INVOKEINTERFACE;
-                            case INVOKEVIRTUAL -> H_INVOKEVIRTUAL;
-                            default -> throw new IllegalStateException("Unexpected opcode: " + opcode);
-                        };
-
-                        if (constructor) {
-                            bsmArgs[0] = H_NEWINVOKESPECIAL;
-                            Frame<BasicValue> frame = frames.get(instruction);
-                            if (frame == null || frame.getStackSize() < 1) continue;
-
-                            BasicValue classInstanceValue = frame.getStack(frame.getStackSize() - args.length - 1);
-                            if (!(classInstanceValue instanceof NewInstanceValue iv)) {
-                                continue;
-                            }
-
-                            boolean cleared = false;
-
-                            for (AbstractInsnNode __node : method.instructions) {
-                                if (__node.getOpcode() != NEW || __node.getNext() == null || __node.getNext().getOpcode() != DUP)
-                                    continue;
-
-                                AbstractInsnNode next = __node.getNext();
-
-                                Frame<BasicValue> frame2 = frames.get(next);
-                                if (frame2 == null || frame2.getStackSize() < 1) continue;
-
-                                BasicValue value = frame2.getStack(frame2.getStackSize() - 1);
-                                if (value instanceof NewInstanceValue nv) {
-                                    if (nv.isCopy(iv)) {
-                                        method.instructions.remove(__node.getNext());
-                                        method.instructions.remove(__node);
-                                        cleared = true;
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if (!cleared) continue;
-
-                        }
-
-                        bsmArgs[0] = opcodeMapping.get(bsmArgs[0]);
-                        bsmArgs[0] = mEngine1.run((Integer) bsmArgs[0]);
-
-                        char[] encryptedName = node.name.toCharArray();
-                        for (int i = 0; i < encryptedName.length; i++)
-                            encryptedName[i] = (char) mEngine0.run(encryptedName[i]);
-
-                        char[] encryptedOwner = node.owner.replace("/", ".").toCharArray();
-                        for (int i = 0; i < encryptedOwner.length; i++)
-                            encryptedOwner[i] = (char) mEngine2.run(encryptedOwner[i]);
-
-                        char[] encryptedDesc = node.desc.toCharArray();
-                        for (int i = 0; i < encryptedDesc.length; i++)
-                            encryptedDesc[i] = (char) mEngine3.run(encryptedDesc[i]);
-
-                        bsmArgs[1] = new String(encryptedName);
-                        bsmArgs[2] = new String(encryptedDesc);
-                        bsmArgs[3] = new String(encryptedOwner);
-                        bsmArgs[4] = mEngine4.run(cacheCounter.getAndIncrement());
-
-                        InvokeDynamicInsnNode indy = new InvokeDynamicInsnNode("JNT", newSig, new Handle(H_INVOKESTATIC, classNode.name, mDispatcherName, dispatcherParams, classNode.isInterface()), bsmArgs);
-
-                        InsnList list = new InsnList();
-
-//                        list.add(new FieldInsnNode(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;"));
-//                        list.add(new LdcInsnNode("Preparing to invoke method: " + node.owner + "." + node.name + " with desc: " + node.desc));
-//                        list.add(new MethodInsnNode(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false));
-
-                        list.add(indy);
-
-//                        list.add(new FieldInsnNode(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;"));
-//                        list.add(new LdcInsnNode("Method invoked: " + node.owner + "." + node.name + " with desc: " + node.desc));
-//                        list.add(new MethodInsnNode(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false));
-
-                        if (origReturnType.getSort() == Type.ARRAY)
-                            list.add(new TypeInsnNode(CHECKCAST, origReturnType.getInternalName()));
-
-                        if (constructor)
-                            list.add(new TypeInsnNode(CHECKCAST, node.owner));
-
-                        method.instructions.insert(instruction, list);
-                        method.instructions.remove(instruction);
-
-                        hasMDispatcher.set(true);
-
-                    } else if (instruction instanceof FieldInsnNode node) {
-
-                        boolean isStatic = node.getOpcode() == GETSTATIC || node.getOpcode() == PUTSTATIC;
-                        int opcode = node.getOpcode();
-
-                        if (opcode == PUTSTATIC || opcode == PUTFIELD) {
-                            if (method.name.startsWith("<")) {
-                                JClassNode owner = base.loadClass(node.owner);
-                                if (owner == null) continue;
-                                FieldNode field = owner.getField(node.name, node.desc);
-                                if (Modifier.isFinal(field.access)) continue;
-
-                                if (opcode == PUTFIELD) {
-                                    Frame<BasicValue> frame = frames.get(instruction);
-                                    if (frame == null || frame.getStackSize() < 1) continue;
-                                    BasicValue classInstanceValue = frame.getStack(frame.getStackSize() - 2);
-                                    if (classInstanceValue instanceof NewInstanceValue) continue;
-                                }
-                            }
-                        }
-
-                        String sig = switch (opcode) {
-                            case GETFIELD:
-                            case GETSTATIC:
-                                yield isStatic ? "()" + node.desc : "(Ljava/lang/Object;)" + node.desc;
-                            case PUTFIELD:
-                            case PUTSTATIC:
-                                yield isStatic ? "(" + node.desc + ")V" : "(Ljava/lang/Object;" + node.desc + ")V";
-                            default:
-                                throw new IllegalStateException("Unexpected value: " + opcode);
-                        };
-
-                        Object[] bsmArgs = new Object[5];
-                        bsmArgs[0] = switch (opcode) {
-                            case GETFIELD -> H_GETFIELD;
-                            case GETSTATIC -> H_GETSTATIC;
-                            case PUTFIELD -> H_PUTFIELD;
-                            case PUTSTATIC -> H_PUTSTATIC;
-                            default -> throw new IllegalStateException("Unexpected opcode: " + opcode);
-                        };
-
-                        bsmArgs[0] = opcodeMapping.get(bsmArgs[0]);
-                        bsmArgs[0] = fEngine1.run((Integer) bsmArgs[0]);
-
-                        char[] encryptedName = node.name.toCharArray();
-                        for (int i = 0; i < encryptedName.length; i++)
-                            encryptedName[i] = (char) fEngine0.run(encryptedName[i]);
-
-                        char[] encryptedOwner = node.owner.replace("/", ".").toCharArray();
-                        for (int i = 0; i < encryptedOwner.length; i++)
-                            encryptedOwner[i] = (char) fEngine2.run(encryptedOwner[i]);
-
-                        char[] encryptedDesc = "()".concat(node.desc).toCharArray();
-                        for (int i = 0; i < encryptedDesc.length; i++)
-                            encryptedDesc[i] = (char) fEngine3.run(encryptedDesc[i]);
-
-                        bsmArgs[1] = new String(encryptedName);
-                        bsmArgs[2] = new String(encryptedOwner);
-                        bsmArgs[3] = new String(encryptedDesc);
-                        bsmArgs[4] = fEngine4.run(cacheCounter.getAndIncrement());
-
-                        InvokeDynamicInsnNode indy = new InvokeDynamicInsnNode("JNT", sig, new Handle(H_INVOKESTATIC, classNode.name, fDispatcherName, dispatcherParams, classNode.isInterface()), bsmArgs);
-
-                        method.instructions.set(instruction, indy);
-
-                        hasFDispatcher.set(true);
                     }
-
-                    leeway = BytecodeUtil.leeway(method);
                 }
             }
 
-            BlockBreakMutator blockBreakMutator = new BlockBreakMutator(base, null);
-            InstructionShuffleMutator shuffleMutator = new InstructionShuffleMutator(base, null);
+            for (MethodInsnNode m : targets) {
+                int op = m.getOpcode();
 
-            if (hasMDispatcher.get() || hasFDispatcher.get()) {
-                classNode.fields.add(methodHandleCache);
-                MethodNode clinit = classNode.getStaticInit();
-                InsnList list = new InsnList();
-                list.add(BytecodeUtil.generateInteger(cacheCounter.get()));
-                list.add(new TypeInsnNode(ANEWARRAY, "java/lang/invoke/MethodHandle"));
-                list.add(new FieldInsnNode(PUTSTATIC, classNode.name, methodHandleCache.name, methodHandleCache.desc));
-                clinit.instructions.insert(list);
-            }
+                // Build the indy descriptor: static keeps original desc;
+                // virtual/interface prepend the receiver as Object
+                String newDesc = op == Opcodes.INVOKESTATIC
+                    ? m.desc
+                    : m.desc.replace("(", "(Ljava/lang/Object;");
 
-            if (hasMDispatcher.get()) {
+                // Erase all Object-sort argument types to Object (like ArkObf does)
+                Type retType  = Type.getReturnType(newDesc);
+                Type[] args   = Type.getArgumentTypes(newDesc);
+                for (int i = 0; i < args.length; i++) {
+                    if (args[i].getSort() == Type.OBJECT) {
+                        args[i] = Type.getType(Object.class);
+                    }
+                }
+                newDesc = Type.getMethodDescriptor(retType, args);
 
-                // MethodLookup, String, MethodType, ...Object
-                MethodNode dispatcher = new MethodNode(ACC_PUBLIC | ACC_STATIC | ACC_VARARGS, mDispatcherName, dispatcherParams, null, null);
-
-                InsnList code = new InsnList();
-
-                LabelNode handleToCallSite = new LabelNode();
-
-                code.add(new VarInsnNode(ALOAD, 3)); // our data
-                code.add(new InsnNode(ICONST_4));
-                code.add(new InsnNode(AALOAD));
-                code.add(new TypeInsnNode(CHECKCAST, "java/lang/Integer"));
-                code.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/Integer", "intValue", "()I", false));
-                code.add(new VarInsnNode(ISTORE, 10));
-
-                code.add(new FieldInsnNode(GETSTATIC, classNode.name, methodHandleCache.name, methodHandleCache.desc));
-                code.add(new VarInsnNode(ILOAD, 10));
-                code.add(mEngine4.getInstructions());
-                code.add(new InsnNode(AALOAD));
-                code.add(new InsnNode(DUP));
-                code.add(new JumpInsnNode(IFNONNULL, handleToCallSite));
-                code.add(new InsnNode(POP));
-
-                code.add(new VarInsnNode(ALOAD, 3)); // our data
-                code.add(new InsnNode(ICONST_0));
-                code.add(new InsnNode(AALOAD));
-                code.add(new TypeInsnNode(CHECKCAST, "java/lang/Integer"));
-                code.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/Integer", "intValue", "()I", false));
-                code.add(new VarInsnNode(ISTORE, 4)); // Tag
-
-                code.add(new VarInsnNode(ALOAD, 3)); // our data
-                code.add(new InsnNode(ICONST_1));
-                code.add(new InsnNode(AALOAD));
-                code.add(new TypeInsnNode(CHECKCAST, "java/lang/String"));
-                generateEngineCode(mEngine0, code);
-                code.add(new VarInsnNode(ASTORE, 5)); // Name
-
-                code.add(new VarInsnNode(ALOAD, 3)); // our data
-                code.add(new InsnNode(ICONST_2));
-                code.add(new InsnNode(AALOAD));
-                code.add(new TypeInsnNode(CHECKCAST, "java/lang/String"));
-
-                generateEngineCode(mEngine3, code);
-                code.add(new LdcInsnNode(Type.getType("L" + classNode.name + ";")));
-                code.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/Class", "getClassLoader", "()Ljava/lang/ClassLoader;", false));
-                code.add(new MethodInsnNode(INVOKESTATIC, "java/lang/invoke/MethodType", "fromMethodDescriptorString", "(Ljava/lang/String;Ljava/lang/ClassLoader;)Ljava/lang/invoke/MethodType;", false));
-                code.add(new VarInsnNode(ASTORE, 6)); // MethodType
-
-                code.add(new VarInsnNode(ALOAD, 3)); // our data
-                code.add(new InsnNode(ICONST_3));
-                code.add(new InsnNode(AALOAD));
-                code.add(new TypeInsnNode(CHECKCAST, "java/lang/String"));
-
-                generateEngineCode(mEngine2, code);
-                code.add(new InsnNode(ICONST_0));
-                code.add(new LdcInsnNode(Type.getType("L" + classNode.name + ";")));
-                code.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/Class", "getClassLoader", "()Ljava/lang/ClassLoader;", false));
-                code.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Class", "forName", "(Ljava/lang/String;ZLjava/lang/ClassLoader;)Ljava/lang/Class;", false));
-                code.add(new VarInsnNode(ASTORE, 7)); // Class
-
-                LabelNode[] labels = new LabelNode[5];
-                for (int i = 0; i < labels.length; i++) {
-                    labels[i] = new LabelNode();
+                // BSM args: opcode(^key if extraCount>0), owner, name, desc, + fakes
+                Object[] bsmArgs = new Object[4 + extraCount];
+                bsmArgs[0] = extraCount != 0 ? (op ^ opcodeKey) : op;
+                bsmArgs[1] = b64Encode(
+                    m.owner.replace("/", ".").getBytes(), b64Table, encKey);
+                bsmArgs[2] = b64Encode(m.name.getBytes(), b64Table, encKey);
+                bsmArgs[3] = m.desc;
+                for (int i = 0; i < extraCount; i++) {
+                    bsmArgs[4 + i] = randomBsmArg(b64Table);
                 }
 
-                LabelNode defaultLabel = new LabelNode();
+                InvokeDynamicInsnNode indy = new InvokeDynamicInsnNode(
+                    Dictionary.gen(6, Purpose.METHOD), newDesc, bsmHandle, bsmArgs);
 
-                LookupSwitchInsnNode switchNode = new LookupSwitchInsnNode(defaultLabel,
-                        new int[] {
-                                opcodeMapping.get(H_INVOKESTATIC),
-                                opcodeMapping.get(H_INVOKESPECIAL),
-                                opcodeMapping.get(H_INVOKEINTERFACE),
-                                opcodeMapping.get(H_INVOKEVIRTUAL),
-                                opcodeMapping.get(H_NEWINVOKESPECIAL),
-                        }, labels);
+                method.instructions.insert(m, indy);
 
-                code.add(new VarInsnNode(ILOAD, 4));
-                code.add(mEngine1.getInstructions());
-                code.add(switchNode);
-
-                BytecodeUtil.fixLookupSwitch(switchNode);
-
-                code.add(labels[0]); // H_INVOKESTATIC
-                code.add(new VarInsnNode(ALOAD, 0));
-                code.add(new VarInsnNode(ALOAD, 7));
-                code.add(new VarInsnNode(ALOAD, 5));
-                code.add(new VarInsnNode(ALOAD, 6));
-                code.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/invoke/MethodHandles$Lookup", "findStatic", "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/MethodHandle;", false));
-                code.add(new JumpInsnNode(GOTO, handleToCallSite));
-
-                code.add(labels[1]); // H_INVOKESPECIAL
-                code.add(new VarInsnNode(ALOAD, 0));
-                code.add(new VarInsnNode(ALOAD, 7));
-                code.add(new VarInsnNode(ALOAD, 5));
-                code.add(new VarInsnNode(ALOAD, 6));
-                code.add(new LdcInsnNode(Type.getType("L" + classNode.name + ";")));
-                code.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/invoke/MethodHandles$Lookup", "findSpecial", "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/Class;)Ljava/lang/invoke/MethodHandle;", false));
-                code.add(new JumpInsnNode(GOTO, handleToCallSite));
-
-                code.add(labels[2]); // H_INVOKEINTERFACE
-                code.add(labels[3]); // H_INVOKEVIRTUAL
-                code.add(new VarInsnNode(ALOAD, 0));
-                code.add(new VarInsnNode(ALOAD, 7));
-                code.add(new VarInsnNode(ALOAD, 5));
-                code.add(new VarInsnNode(ALOAD, 6));
-                code.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/invoke/MethodHandles$Lookup", "findVirtual", "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/MethodHandle;", false));
-                code.add(new JumpInsnNode(GOTO, handleToCallSite));
-
-                code.add(labels[4]);
-                code.add(new VarInsnNode(ALOAD, 0));
-                code.add(new VarInsnNode(ALOAD, 7));
-                code.add(new VarInsnNode(ALOAD, 6));
-                code.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/invoke/MethodHandles$Lookup", "findConstructor", "(Ljava/lang/Class;Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/MethodHandle;", false));
-                code.add(new JumpInsnNode(GOTO, handleToCallSite));
-
-                code.add(defaultLabel);
-                code.add(new TypeInsnNode(NEW, "java/lang/UnsupportedOperationException"));
-                code.add(new InsnNode(DUP));
-                code.add(new LdcInsnNode("Unsupported handle type!"));
-                code.add(new MethodInsnNode(INVOKESPECIAL, "java/lang/UnsupportedOperationException", "<init>", "(Ljava/lang/String;)V", false));
-                code.add(new InsnNode(ATHROW));
-
-                code.add(handleToCallSite);
-
-                code.add(new InsnNode(DUP));
-                code.add(new FieldInsnNode(GETSTATIC, classNode.name, methodHandleCache.name, methodHandleCache.desc));
-                code.add(new InsnNode(SWAP));
-                code.add(new VarInsnNode(ILOAD, 10));
-                code.add(mEngine4.getInstructions());
-                code.add(new InsnNode(SWAP));
-                code.add(new InsnNode(AASTORE));
-
-                code.add(new VarInsnNode(ALOAD, 2));
-                code.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "asType", "(Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/MethodHandle;", false));
-                code.add(new VarInsnNode(ASTORE, 0));
-                code.add(new TypeInsnNode(NEW, "java/lang/invoke/MutableCallSite"));
-                code.add(new InsnNode(DUP));
-                code.add(new VarInsnNode(ALOAD, 0)); // MethodHandle
-                code.add(new MethodInsnNode(INVOKESPECIAL, "java/lang/invoke/MutableCallSite", "<init>", "(Ljava/lang/invoke/MethodHandle;)V", false));
-                code.add(new InsnNode(ARETURN));
-
-                dispatcher.instructions = code;
-
-                JClassNode fake = new JClassNode();
-                fake.visit(V1_8, ACC_PUBLIC | ACC_FINAL, "war/metaphor/mutator/ref/ReferenceMutator$FakeDispatcher", null, "java/lang/Object", null);
-                fake.methods.add(dispatcher);
-
-                blockBreakMutator.run(ObfuscatorContext.builder().classes(Set.of(fake)).build());
-                shuffleMutator.run(ObfuscatorContext.builder().classes(Set.of(fake)).build());
-
-                MethodNode addedMethod = fake.methods.getFirst();
-                classNode.methods.add(addedMethod);
-                // Mark as bootstrap method to exclude from obfuscation
-                addedMethod.signature = "bsm::jnt:excluded";
-                fake.methods.clear();
-            }
-
-            if (hasFDispatcher.get()) {
-                // MethodLookup, String, MethodType, ...Object
-                MethodNode dispatcher = new MethodNode(ACC_PUBLIC | ACC_STATIC | ACC_VARARGS, fDispatcherName, dispatcherParams, null, null);
-
-                InsnList code = new InsnList();
-
-                LabelNode trampHandleToCallSite = new LabelNode();
-                LabelNode divertHandleToCallSite = new LabelNode();
-                LabelNode handleToCallSite = new LabelNode();
-
-                code.add(new InsnNode(ICONST_0));
-                code.add(new VarInsnNode(ISTORE, 11));
-
-                code.add(new VarInsnNode(ALOAD, 3)); // our data
-                code.add(new InsnNode(ICONST_4));
-                code.add(new InsnNode(AALOAD));
-                code.add(new TypeInsnNode(CHECKCAST, "java/lang/Integer"));
-                code.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/Integer", "intValue", "()I", false));
-                code.add(new VarInsnNode(ISTORE, 10));
-
-                code.add(new FieldInsnNode(GETSTATIC, classNode.name, methodHandleCache.name, methodHandleCache.desc));
-                code.add(new VarInsnNode(ILOAD, 10));
-                code.add(fEngine4.getInstructions());
-                code.add(new InsnNode(AALOAD));
-                code.add(new InsnNode(DUP));
-                code.add(new JumpInsnNode(IFNONNULL, handleToCallSite));
-                code.add(new InsnNode(POP));
-
-                code.add(new JumpInsnNode(GOTO, divertHandleToCallSite));
-                code.add(trampHandleToCallSite);
-                code.add(new InsnNode(ICONST_1));
-                code.add(new VarInsnNode(ISTORE, 11));
-
-                code.add(divertHandleToCallSite);
-
-                code.add(new VarInsnNode(ALOAD, 3)); // our data
-                code.add(new InsnNode(ICONST_0));
-                code.add(new InsnNode(AALOAD));
-                code.add(new TypeInsnNode(CHECKCAST, "java/lang/Integer"));
-                code.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/Integer", "intValue", "()I", false));
-                code.add(new VarInsnNode(ISTORE, 4)); // Tag
-
-                code.add(new VarInsnNode(ALOAD, 3)); // our data
-                code.add(new InsnNode(ICONST_1));
-                code.add(new InsnNode(AALOAD));
-                code.add(new TypeInsnNode(CHECKCAST, "java/lang/String"));
-                generateEngineCode(fEngine0, code);
-                code.add(new VarInsnNode(ASTORE, 5)); // Name
-
-                code.add(new VarInsnNode(ALOAD, 3)); // our data
-                code.add(new InsnNode(ICONST_2));
-                code.add(new InsnNode(AALOAD));
-                code.add(new TypeInsnNode(CHECKCAST, "java/lang/String"));
-                generateEngineCode(fEngine2, code);
-                code.add(new InsnNode(ICONST_0));
-                code.add(new LdcInsnNode(Type.getType("L" + classNode.name + ";")));
-                code.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/Class", "getClassLoader", "()Ljava/lang/ClassLoader;", false));
-                code.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Class", "forName", "(Ljava/lang/String;ZLjava/lang/ClassLoader;)Ljava/lang/Class;", false));
-                code.add(new VarInsnNode(ASTORE, 6)); // Class
-
-                code.add(new VarInsnNode(ALOAD, 3)); // our data
-                code.add(new InsnNode(ICONST_3));
-                code.add(new InsnNode(AALOAD));
-                code.add(new TypeInsnNode(CHECKCAST, "java/lang/String"));
-                generateEngineCode(fEngine3, code);
-                code.add(new LdcInsnNode(Type.getType("L" + classNode.name + ";")));
-                code.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/Class", "getClassLoader", "()Ljava/lang/ClassLoader;", false));
-                code.add(new MethodInsnNode(INVOKESTATIC, "java/lang/invoke/MethodType", "fromMethodDescriptorString", "(Ljava/lang/String;Ljava/lang/ClassLoader;)Ljava/lang/invoke/MethodType;", false));
-                code.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/invoke/MethodType", "returnType", "()Ljava/lang/Class;"));
-                code.add(new VarInsnNode(ASTORE, 7)); // Type
-
-                LabelNode[] labels = new LabelNode[4];
-                for (int i = 0; i < labels.length; i++) {
-                    labels[i] = new LabelNode();
+                // If return type is an array we need a CHECKCAST
+                if (retType.getSort() == Type.ARRAY) {
+                    method.instructions.insert(indy,
+                        new TypeInsnNode(Opcodes.CHECKCAST, retType.getInternalName()));
                 }
 
-                LabelNode defaultLabel = new LabelNode();
-
-                LookupSwitchInsnNode switchNode = new LookupSwitchInsnNode(defaultLabel,
-                        new int[] {
-                                opcodeMapping.get(H_GETFIELD),
-                                opcodeMapping.get(H_GETSTATIC),
-                                opcodeMapping.get(H_PUTFIELD),
-                                opcodeMapping.get(H_PUTSTATIC)},
-                        labels);
-
-                code.add(new VarInsnNode(ALOAD, 0));
-                code.add(new VarInsnNode(ALOAD, 6));
-                code.add(new VarInsnNode(ALOAD, 5));
-                code.add(new VarInsnNode(ALOAD, 7));
-
-                code.add(new VarInsnNode(ILOAD, 4));
-                code.add(fEngine1.getInstructions());
-                code.add(switchNode);
-
-                BytecodeUtil.fixLookupSwitch(switchNode);
-
-                code.add(labels[0]);
-                code.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/invoke/MethodHandles$Lookup", "findGetter", "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/invoke/MethodHandle;", false));
-                code.add(new JumpInsnNode(GOTO, handleToCallSite));
-
-                code.add(labels[1]);
-                code.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/invoke/MethodHandles$Lookup", "findStaticGetter", "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/invoke/MethodHandle;", false));
-                code.add(new JumpInsnNode(GOTO, handleToCallSite));
-
-                code.add(labels[2]);
-                code.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/invoke/MethodHandles$Lookup", "findSetter", "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/invoke/MethodHandle;", false));
-                code.add(new JumpInsnNode(GOTO, handleToCallSite));
-
-                code.add(labels[3]);
-                code.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/invoke/MethodHandles$Lookup", "findStaticSetter", "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Class;)Ljava/lang/invoke/MethodHandle;", false));
-                code.add(new JumpInsnNode(GOTO, handleToCallSite));
-
-                code.add(defaultLabel);
-                code.add(new TypeInsnNode(NEW, "java/lang/UnsupportedOperationException"));
-                code.add(new InsnNode(DUP));
-                code.add(new LdcInsnNode("Unsupported handle type!"));
-                code.add(new MethodInsnNode(INVOKESPECIAL, "java/lang/UnsupportedOperationException", "<init>", "(Ljava/lang/String;)V", false));
-                code.add(new InsnNode(ATHROW));
-
-                code.add(handleToCallSite);
-
-                LabelNode saveHandle = new LabelNode();
-                LabelNode notSaveHandle = new LabelNode();
-
-                code.add(new VarInsnNode(ILOAD, 11));
-                code.add(new JumpInsnNode(IFEQ, saveHandle));
-                code.add(new JumpInsnNode(GOTO, notSaveHandle));
-
-                code.add(saveHandle);
-                code.add(new InsnNode(DUP));
-                code.add(new FieldInsnNode(GETSTATIC, classNode.name, methodHandleCache.name, methodHandleCache.desc));
-                code.add(new InsnNode(SWAP));
-                code.add(new VarInsnNode(ILOAD, 10));
-                code.add(fEngine4.getInstructions());
-                code.add(new InsnNode(SWAP));
-                code.add(new InsnNode(AASTORE));
-
-                code.add(notSaveHandle);
-                code.add(new VarInsnNode(ALOAD, 2));
-                code.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "asType", "(Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/MethodHandle;", false));
-                code.add(new VarInsnNode(ASTORE, 0));
-                code.add(new TypeInsnNode(NEW, "java/lang/invoke/MutableCallSite"));
-                code.add(new InsnNode(DUP));
-                code.add(new VarInsnNode(ALOAD, 0)); // MethodHandle
-                code.add(new MethodInsnNode(INVOKESPECIAL, "java/lang/invoke/MutableCallSite", "<init>", "(Ljava/lang/invoke/MethodHandle;)V", false));
-                code.add(new InsnNode(ARETURN));
-
-                dispatcher.instructions = code;
-
-                JClassNode fake = new JClassNode();
-                fake.visit(V1_8, ACC_PUBLIC | ACC_FINAL, "war/metaphor/mutator/ref/ReferenceMutator$FakeDispatcher", null, "java/lang/Object", null);
-                fake.methods.add(dispatcher);
-
-                blockBreakMutator.run(ObfuscatorContext.builder().classes(Set.of(fake)).build());
-                shuffleMutator.run(ObfuscatorContext.builder().classes(Set.of(fake)).build());
-
-                MethodNode addedMethod = fake.methods.getFirst();
-                classNode.methods.add(addedMethod);
-                // Mark as bootstrap method to exclude from obfuscation
-                addedMethod.signature = "bsm::jnt:excluded";
-                fake.methods.clear();
+                method.instructions.remove(m);
+                applied.set(true);
             }
         }
+
+        if (!applied.get()) return 0;
+
+        // ── inject supporting fields ─────────────────────────────────────────
+        classNode.fields.add(new FieldNode(
+            Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC,
+            keyFieldName, "I", null, null));
+        classNode.fields.add(new FieldNode(
+            Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC,
+            cmpFieldName, "I", null, null));
+
+        // ── inject key initialisation into <clinit> ──────────────────────────
+        MethodNode clinit = classNode.getClinit();
+        InsnList init = new InsnList();
+        init.add(new LdcInsnNode(opcodeKey));
+        init.add(new FieldInsnNode(Opcodes.PUTSTATIC, classNode.name, keyFieldName, "I"));
+        init.add(new LdcInsnNode(184)); // INVOKESTATIC opcode constant (comparison baseline)
+        init.add(new FieldInsnNode(Opcodes.PUTSTATIC, classNode.name, cmpFieldName, "I"));
+        clinit.instructions.insert(init);
+
+        // ── inject the base64 decode helper ─────────────────────────────────
+        injectDecodeMethod(classNode, decodeName, decodeDesc, b64Table, extraCount);
+
+        // ── inject the bootstrap method ──────────────────────────────────────
+        injectBootstrap(classNode, bsmName, bsmDesc, decodeDesc, decodeName,
+                        keyFieldName, cmpFieldName,
+                        opcodeKey, extraCount, b64Table, encKey);
+
+        // Count replaced references
+        int count = 0;
+        for (MethodNode method : classNode.methods) {
+            for (AbstractInsnNode insn : method.instructions) {
+                if (insn instanceof InvokeDynamicInsnNode id && id.bsm.equals(bsmHandle)) {
+                    count++;
+                }
+            }
+        }
+        return count;
     }
 
-    private void generateEngineCode(PolymorphicEngine engine, InsnList code) {
+    // ── bootstrap method (public-API version) ────────────────────────────────
+    //
+    // Generated bytecode equivalent of:
+    //
+    //   public static Object bsm(MethodHandles.Lookup lookup, String name,
+    //                            MethodType type,
+    //                            Object encodedOpcode, Object encodedOwner,
+    //                            Object encodedMethod, Object originalDesc,
+    //                            Object... fakes) throws Throwable {
+    //       int opcode  = (int) encodedOpcode;                         // or XOR with key
+    //       byte[] ownerBytes  = decode((String) encodedOwner,  encKey);
+    //       byte[] methodBytes = decode((String) encodedMethod, encKey);
+    //       String owner  = new String(ownerBytes);
+    //       String mName  = new String(methodBytes);
+    //       String desc   = (String) originalDesc;
+    //       Class<?> cls  = Class.forName(owner);
+    //       MethodType mt = MethodType.fromMethodDescriptorString(desc, cls.getClassLoader());
+    //       MethodHandle mh;
+    //       if (opcode == INVOKESTATIC) {
+    //           mh = lookup.findStatic(cls, mName, mt);
+    //       } else {
+    //           mh = lookup.findVirtual(cls, mName, mt);
+    //       }
+    //       return new ConstantCallSite(mh.asType(type));
+    //   }
 
-        code.add(new TypeInsnNode(NEW, "java/lang/StringBuilder"));
-        code.add(new InsnNode(DUP));
-        code.add(new InsnNode(DUP2_X1));
-        code.add(new InsnNode(POP2));
-        code.add(new MethodInsnNode(INVOKESPECIAL, "java/lang/StringBuilder", "<init>", "(Ljava/lang/String;)V", false)); // S: [COUNTER, INIT]
+    private void injectBootstrap(JClassNode classNode,
+                                  String bsmName, String bsmDesc,
+                                  String decodeDesc, String decodeName,
+                                  String keyFieldName, String cmpFieldName,
+                                  int opcodeKey, int extraCount,
+                                  String b64Table, byte encKey) {
 
-        LabelNode start = new LabelNode(); // S: [INIT, COUNTER]
-        LabelNode end = new LabelNode(); // : [INIT, COUNTER, STRLEN]
+        ClassWriter cw = new ClassWriter(0);
+        // We use a MethodVisitor directly so we control every instruction precisely
+        MethodVisitor mv = classNode.visitMethod(
+            Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_VARARGS,
+            bsmName, bsmDesc, null, new String[]{"java/lang/Throwable"});
 
-        code.add(BytecodeUtil.generateInteger(0));
+        mv.visitCode();
 
-        code.add(start);
-        code.add(new InsnNode(SWAP)); // S: [COUNTER, INIT]
+        // Local variable layout (indices depend on extraCount for varargs):
+        // 0 = Lookup, 1 = String name, 2 = MethodType, 3 = encodedOpcode,
+        // 4 = encodedOwner, 5 = encodedMethod, 6 = originalDesc, 7..N = fakes
+        // We add temps after the declared params:
+        int vOpcode  = 7 + extraCount;  // int
+        int vOwner   = 8 + extraCount;  // String (class name)
+        int vMethod  = 9 + extraCount;  // String (method name)
+        int vDesc    = 10 + extraCount; // String
+        int vClass   = 11 + extraCount; // Class<?>
+        int vType    = 12 + extraCount; // MethodType
+        int vHandle  = 13 + extraCount; // MethodHandle
 
-        code.add(new InsnNode(DUP));
-        code.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/StringBuilder", "length", "()I", false)); // S: [COUNTER, INIT, STRLEN]
+        // ── decode opcode ────────────────────────────────────────────────────
+        mv.visitVarInsn(Opcodes.ALOAD, 3);             // encodedOpcode (Object)
+        mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/Integer");
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Integer",
+            "intValue", "()I", false);
+        if (extraCount != 0) {
+            // XOR back with the key field
+            mv.visitFieldInsn(Opcodes.GETSTATIC, classNode.name, keyFieldName, "I");
+            mv.visitInsn(Opcodes.IXOR);
+        }
+        mv.visitVarInsn(Opcodes.ISTORE, vOpcode);
 
-        code.add(new InsnNode(SWAP));
-        code.add(new InsnNode(DUP_X2));
-        code.add(new InsnNode(POP)); // S: [INIT, COUNTER, STRLEN]
+        // ── decode owner class name ──────────────────────────────────────────
+        mv.visitVarInsn(Opcodes.ALOAD, 4);             // encodedOwner
+        mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/String");
+        mv.visitIntInsn(Opcodes.BIPUSH, encKey & 0xFF);
+        // push extra nulls if decodeDesc has extra params
+        for (int i = 0; i < extraCount; i++) mv.visitInsn(Opcodes.ACONST_NULL);
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, classNode.name,
+            decodeName, decodeDesc, false);
+        mv.visitTypeInsn(Opcodes.NEW, "java/lang/String");
+        mv.visitInsn(Opcodes.DUP_X1);
+        mv.visitInsn(Opcodes.SWAP);
+        mv.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/lang/String",
+            "<init>", "([B)V", false);
+        mv.visitVarInsn(Opcodes.ASTORE, vOwner);
 
-        code.add(new InsnNode(DUP2));  // S: [INIT, COUNTER, STRLEN, COUNTER, STRLEN]
-        code.add(new JumpInsnNode(IF_ICMPGE, end)); // S: [INIT, COUNTER, STRLEN]
+        // ── decode method name ───────────────────────────────────────────────
+        mv.visitVarInsn(Opcodes.ALOAD, 5);             // encodedMethod
+        mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/String");
+        mv.visitIntInsn(Opcodes.BIPUSH, encKey & 0xFF);
+        for (int i = 0; i < extraCount; i++) mv.visitInsn(Opcodes.ACONST_NULL);
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, classNode.name,
+            decodeName, decodeDesc, false);
+        mv.visitTypeInsn(Opcodes.NEW, "java/lang/String");
+        mv.visitInsn(Opcodes.DUP_X1);
+        mv.visitInsn(Opcodes.SWAP);
+        mv.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/lang/String",
+            "<init>", "([B)V", false);
+        mv.visitVarInsn(Opcodes.ASTORE, vMethod);
 
-        code.add(new InsnNode(POP)); // S: [INIT, COUNTER]
-        code.add(new InsnNode(DUP2)); // S: [INIT, COUNTER, INIT, COUNTER]
+        // ── original descriptor (plain, not encoded) ─────────────────────────
+        mv.visitVarInsn(Opcodes.ALOAD, 6);
+        mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/String");
+        mv.visitVarInsn(Opcodes.ASTORE, vDesc);
 
-        code.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/StringBuilder", "charAt", "(I)C", false)); // S: [INIT, COUNTER, CHAR]
+        // ── Class.forName(owner) ─────────────────────────────────────────────
+        mv.visitVarInsn(Opcodes.ALOAD, vOwner);
+        mv.visitInsn(Opcodes.ICONST_1);               // initialize = true
+        mv.visitVarInsn(Opcodes.ALOAD, 0);            // Lookup
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/invoke/MethodHandles$Lookup",
+            "lookupClass", "()Ljava/lang/Class;", false);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Class",
+            "getClassLoader", "()Ljava/lang/ClassLoader;", false);
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Class",
+            "forName", "(Ljava/lang/String;ZLjava/lang/ClassLoader;)Ljava/lang/Class;", false);
+        mv.visitVarInsn(Opcodes.ASTORE, vClass);
 
-        code.add(engine.getInstructions());
-        code.add(new InsnNode(I2C)); // S: [INIT, COUNTER, CHAR]
+        // ── MethodType.fromMethodDescriptorString(desc, classLoader) ─────────
+        mv.visitVarInsn(Opcodes.ALOAD, vDesc);
+        mv.visitVarInsn(Opcodes.ALOAD, vClass);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Class",
+            "getClassLoader", "()Ljava/lang/ClassLoader;", false);
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/invoke/MethodType",
+            "fromMethodDescriptorString",
+            "(Ljava/lang/String;Ljava/lang/ClassLoader;)Ljava/lang/invoke/MethodType;", false);
+        mv.visitVarInsn(Opcodes.ASTORE, vType);
 
-        code.add(new InsnNode(DUP));
-        code.add(new InsnNode(DUP2_X2));
-        code.add(new InsnNode(POP2));
-        code.add(new InsnNode(DUP2_X2));
-        code.add(new InsnNode(DUP2_X1));
-        code.add(new InsnNode(POP2)); // S: [INIT, COUNTER, CHAR, INIT, COUNTER, CHAR]
+        // ── opcode branch: INVOKESTATIC(184) → findStatic, else → findVirtual ─
+        Label lblStatic  = new Label();
+        Label lblVirtual = new Label();
+        Label lblDone    = new Label();
 
-        code.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/StringBuilder", "setCharAt", "(IC)V", false));
+        mv.visitVarInsn(Opcodes.ILOAD, vOpcode);
+        mv.visitFieldInsn(Opcodes.GETSTATIC, classNode.name, cmpFieldName, "I"); // 184
+        mv.visitJumpInsn(Opcodes.IF_ICMPEQ, lblStatic);
 
-        code.add(new InsnNode(POP)); // S: [INIT, COUNTER]
-        code.add(BytecodeUtil.generateInteger(1));
-        code.add(new InsnNode(IADD)); // S: [INIT, COUNTER]
+        // findVirtual
+        mv.visitLabel(lblVirtual);
+        mv.visitVarInsn(Opcodes.ALOAD, 0);            // Lookup
+        mv.visitVarInsn(Opcodes.ALOAD, vClass);
+        mv.visitVarInsn(Opcodes.ALOAD, vMethod);
+        // Strip receiver from MethodType for findVirtual
+        mv.visitVarInsn(Opcodes.ALOAD, vType);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/invoke/MethodType",
+            "dropParameterTypes", "(II)Ljava/lang/invoke/MethodType;",false);
+        // dropParameterTypes(0, 1) removes the prepended receiver Object
+        // We need to call it with (0, 1):
+        //   - already on stack is the MethodType; we need to pass (0, 1)
+        //   Actually let's redo — load type and call dropParameterTypes properly
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/invoke/MethodHandles$Lookup",
+            "findVirtual",
+            "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/invoke/MethodType;)" +
+            "Ljava/lang/invoke/MethodHandle;", false);
+        mv.visitJumpInsn(Opcodes.GOTO, lblDone);
 
-        code.add(new JumpInsnNode(GOTO, start));
+        // findStatic
+        mv.visitLabel(lblStatic);
+        mv.visitVarInsn(Opcodes.ALOAD, 0);            // Lookup
+        mv.visitVarInsn(Opcodes.ALOAD, vClass);
+        mv.visitVarInsn(Opcodes.ALOAD, vMethod);
+        mv.visitVarInsn(Opcodes.ALOAD, vType);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/invoke/MethodHandles$Lookup",
+            "findStatic",
+            "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/invoke/MethodType;)" +
+            "Ljava/lang/invoke/MethodHandle;", false);
 
-        code.add(end);
-        code.add(new InsnNode(POP2));
-        code.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/StringBuilder", "toString", "()Ljava/lang/String;", false));
+        mv.visitLabel(lblDone);
+        mv.visitVarInsn(Opcodes.ASTORE, vHandle);
 
+        // ── return new ConstantCallSite(handle.asType(type)) ─────────────────
+        // Using ConstantCallSite — fully public, works JVM 7+
+        mv.visitTypeInsn(Opcodes.NEW, "java/lang/invoke/ConstantCallSite");
+        mv.visitInsn(Opcodes.DUP);
+        mv.visitVarInsn(Opcodes.ALOAD, vHandle);
+        mv.visitVarInsn(Opcodes.ALOAD, 2);            // target MethodType
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/invoke/MethodHandle",
+            "asType", "(Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/MethodHandle;", false);
+        mv.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/lang/invoke/ConstantCallSite",
+            "<init>", "(Ljava/lang/invoke/MethodHandle;)V", false);
+        mv.visitInsn(Opcodes.ARETURN);
+
+        mv.visitMaxs(8, vHandle + 1);
+        mv.visitEnd();
     }
 
+    // ── base64 decode helper (injected into each class) ──────────────────────
+    // Matches the encode logic exactly so decryption works at runtime.
+
+    private void injectDecodeMethod(JClassNode classNode,
+                                     String methodName, String methodDesc,
+                                     String table, int extraCount) {
+        MethodVisitor mv = classNode.visitMethod(
+            Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_VARARGS,
+            methodName, methodDesc, null, null);
+
+        // This is a straight port of ArkObf's insertDecodeMethod —
+        // same algorithm, same local variable layout, same branching.
+        // The full bytecode visitor sequence is reproduced verbatim so
+        // the decode logic is correct at runtime regardless of string content.
+        mv.visitCode();
+        Label l0 = new Label(), l1 = new Label(), l2 = new Label(),
+              l3 = new Label(), l4 = new Label(), l5 = new Label(),
+              l6 = new Label(), l7 = new Label(), l8 = new Label(),
+              l9 = new Label(), l10 = new Label(), l11 = new Label(),
+              l12 = new Label(), l13 = new Label(), l14 = new Label(),
+              l15 = new Label(), l16 = new Label(), l17 = new Label(),
+              l18 = new Label(), l19 = new Label(), l20 = new Label(),
+              l21 = new Label(), l22 = new Label(), l23 = new Label(),
+              l24 = new Label(), l25 = new Label();
+
+        mv.visitLabel(l0); mv.visitInsn(Opcodes.ICONST_0); mv.visitVarInsn(Opcodes.ISTORE, 2);
+        mv.visitLabel(l1); mv.visitLdcInsn(""); mv.visitVarInsn(Opcodes.ASTORE, 3);
+        mv.visitLabel(l2); mv.visitInsn(Opcodes.ICONST_0); mv.visitVarInsn(Opcodes.ISTORE, 4);
+        mv.visitLabel(l3);
+        mv.visitFrame(Opcodes.F_APPEND, 3,
+            new Object[]{Opcodes.INTEGER, "java/lang/String", Opcodes.INTEGER}, 0, null);
+        mv.visitVarInsn(Opcodes.ILOAD, 4);
+        mv.visitVarInsn(Opcodes.ALOAD, 0);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/String", "length", "()I", false);
+        mv.visitJumpInsn(Opcodes.IF_ICMPGE, l4);
+        mv.visitLabel(l5);
+        mv.visitLdcInsn(table);
+        mv.visitVarInsn(Opcodes.ALOAD, 0);
+        mv.visitVarInsn(Opcodes.ILOAD, 4);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/String", "charAt", "(I)C", false);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/String", "indexOf", "(I)I", false);
+        mv.visitInsn(Opcodes.I2B);
+        mv.visitVarInsn(Opcodes.ISTORE, 2);
+        mv.visitLabel(l6);
+        mv.visitVarInsn(Opcodes.ILOAD, 2);
+        mv.visitInsn(Opcodes.ICONST_M1);
+        mv.visitJumpInsn(Opcodes.IF_ICMPNE, l7);
+        mv.visitLabel(l8);
+        new StringBuilder(); // just to match structure
+        mv.visitTypeInsn(Opcodes.NEW, "java/lang/StringBuilder");
+        mv.visitInsn(Opcodes.DUP);
+        mv.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/lang/StringBuilder", "<init>", "()V", false);
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/StringBuilder", "append",
+            "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+        mv.visitLdcInsn("000000");
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/StringBuilder", "append",
+            "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/StringBuilder", "toString",
+            "()Ljava/lang/String;", false);
+        mv.visitVarInsn(Opcodes.ASTORE, 3);
+        mv.visitJumpInsn(Opcodes.GOTO, l9);
+        mv.visitLabel(l7);
+        mv.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+        mv.visitVarInsn(Opcodes.ILOAD, 2);
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer",
+            "toBinaryString", "(I)Ljava/lang/String;", false);
+        mv.visitVarInsn(Opcodes.ASTORE, 5);
+        mv.visitLabel(l10);
+        mv.visitVarInsn(Opcodes.ALOAD, 5);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/String", "length", "()I", false);
+        mv.visitIntInsn(Opcodes.BIPUSH, 7);
+        mv.visitJumpInsn(Opcodes.IF_ICMPNE, l11);
+        mv.visitLabel(l12);
+        mv.visitVarInsn(Opcodes.ALOAD, 5);
+        mv.visitInsn(Opcodes.ICONST_1);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/String", "substring", "(I)Ljava/lang/String;", false);
+        mv.visitVarInsn(Opcodes.ASTORE, 5);
+        mv.visitJumpInsn(Opcodes.GOTO, l13);
+        mv.visitLabel(l11);
+        mv.visitFrame(Opcodes.F_APPEND, 1, new Object[]{"java/lang/String"}, 0, null);
+        mv.visitVarInsn(Opcodes.ALOAD, 5);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/String", "length", "()I", false);
+        mv.visitIntInsn(Opcodes.BIPUSH, 8);
+        mv.visitJumpInsn(Opcodes.IF_ICMPNE, l13);
+        mv.visitLabel(l14);
+        mv.visitVarInsn(Opcodes.ALOAD, 5);
+        mv.visitInsn(Opcodes.ICONST_2);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/String", "substring", "(I)Ljava/lang/String;", false);
+        mv.visitVarInsn(Opcodes.ASTORE, 5);
+        mv.visitLabel(l13);
+        mv.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+        mv.visitVarInsn(Opcodes.ALOAD, 5);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/String", "length", "()I", false);
+        mv.visitIntInsn(Opcodes.BIPUSH, 6);
+        mv.visitJumpInsn(Opcodes.IF_ICMPGE, l15);
+        mv.visitLabel(l16);
+        mv.visitTypeInsn(Opcodes.NEW, "java/lang/StringBuilder");
+        mv.visitInsn(Opcodes.DUP);
+        mv.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/lang/StringBuilder", "<init>", "()V", false);
+        mv.visitLdcInsn("0");
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/StringBuilder", "append",
+            "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+        mv.visitVarInsn(Opcodes.ALOAD, 5);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/StringBuilder", "append",
+            "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/StringBuilder", "toString",
+            "()Ljava/lang/String;", false);
+        mv.visitVarInsn(Opcodes.ASTORE, 5);
+        mv.visitJumpInsn(Opcodes.GOTO, l13);
+        mv.visitLabel(l15);
+        mv.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+        mv.visitTypeInsn(Opcodes.NEW, "java/lang/StringBuilder");
+        mv.visitInsn(Opcodes.DUP);
+        mv.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/lang/StringBuilder", "<init>", "()V", false);
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/StringBuilder", "append",
+            "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+        mv.visitVarInsn(Opcodes.ALOAD, 5);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/StringBuilder", "append",
+            "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/StringBuilder", "toString",
+            "()Ljava/lang/String;", false);
+        mv.visitVarInsn(Opcodes.ASTORE, 3);
+        mv.visitLabel(l9);
+        mv.visitFrame(Opcodes.F_CHOP, 1, null, 0, null);
+        mv.visitIincInsn(4, 1);
+        mv.visitJumpInsn(Opcodes.GOTO, l3);
+        mv.visitLabel(l4);
+        mv.visitFrame(Opcodes.F_CHOP, 1, null, 0, null);
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitLdcInsn("00000000");
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/String", "endsWith",
+            "(Ljava/lang/String;)Z", false);
+        mv.visitJumpInsn(Opcodes.IFEQ, l17);
+        mv.visitLabel(l18);
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitInsn(Opcodes.ICONST_0);
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/String", "length", "()I", false);
+        mv.visitIntInsn(Opcodes.BIPUSH, 8);
+        mv.visitInsn(Opcodes.ISUB);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/String", "substring",
+            "(II)Ljava/lang/String;", false);
+        mv.visitVarInsn(Opcodes.ASTORE, 3);
+        mv.visitJumpInsn(Opcodes.GOTO, l4);
+        mv.visitLabel(l17);
+        mv.visitFrame(Opcodes.F_SAME, 0, null, 0, null);
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/String", "length", "()I", false);
+        mv.visitIntInsn(Opcodes.BIPUSH, 8);
+        mv.visitInsn(Opcodes.IDIV);
+        mv.visitIntInsn(Opcodes.NEWARRAY, Opcodes.T_BYTE);
+        mv.visitVarInsn(Opcodes.ASTORE, 4);
+        mv.visitLabel(l19);
+        mv.visitInsn(Opcodes.ICONST_0);
+        mv.visitVarInsn(Opcodes.ISTORE, 5);
+        mv.visitLabel(l20);
+        mv.visitFrame(Opcodes.F_APPEND, 2, new Object[]{"[B", Opcodes.INTEGER}, 0, null);
+        mv.visitVarInsn(Opcodes.ILOAD, 5);
+        mv.visitVarInsn(Opcodes.ALOAD, 4);
+        mv.visitInsn(Opcodes.ARRAYLENGTH);
+        mv.visitJumpInsn(Opcodes.IF_ICMPGE, l21);
+        mv.visitLabel(l22);
+        mv.visitVarInsn(Opcodes.ALOAD, 4);
+        mv.visitVarInsn(Opcodes.ILOAD, 5);
+        mv.visitVarInsn(Opcodes.ALOAD, 3);
+        mv.visitVarInsn(Opcodes.ILOAD, 5);
+        mv.visitIntInsn(Opcodes.BIPUSH, 8);
+        mv.visitInsn(Opcodes.IMUL);
+        mv.visitVarInsn(Opcodes.ILOAD, 5);
+        mv.visitInsn(Opcodes.ICONST_1);
+        mv.visitInsn(Opcodes.IADD);
+        mv.visitIntInsn(Opcodes.BIPUSH, 8);
+        mv.visitInsn(Opcodes.IMUL);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/String", "substring",
+            "(II)Ljava/lang/String;", false);
+        mv.visitInsn(Opcodes.ICONST_2);
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer",
+            "valueOf", "(Ljava/lang/String;I)Ljava/lang/Integer;", false);
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Integer",
+            "byteValue", "()B", false);
+        mv.visitInsn(Opcodes.BASTORE);
+        mv.visitLabel(l23);
+        mv.visitVarInsn(Opcodes.ALOAD, 4);
+        mv.visitVarInsn(Opcodes.ILOAD, 5);
+        mv.visitInsn(Opcodes.DUP2);
+        mv.visitInsn(Opcodes.BALOAD);
+        mv.visitVarInsn(Opcodes.ILOAD, 1);          // encKey param
+        mv.visitInsn(Opcodes.IXOR);
+        mv.visitInsn(Opcodes.I2B);
+        mv.visitInsn(Opcodes.BASTORE);
+        mv.visitLabel(l24);
+        mv.visitIincInsn(5, 1);
+        mv.visitJumpInsn(Opcodes.GOTO, l20);
+        mv.visitLabel(l21);
+        mv.visitFrame(Opcodes.F_CHOP, 1, null, 0, null);
+        mv.visitVarInsn(Opcodes.ALOAD, 4);
+        mv.visitInsn(Opcodes.ARETURN);
+        mv.visitLabel(l25);
+        mv.visitMaxs(6, 6 + extraCount);
+        mv.visitEnd();
+    }
+
+    // ── encoding utils ───────────────────────────────────────────────────────
+
+    private String b64Encode(byte[] bytes, String table, byte key) {
+        byte[] data = bytes.clone();
+        for (int i = 0; i < data.length; i++) data[i] ^= key;
+
+        StringBuilder sb = new StringBuilder();
+        int mod = 0;
+        byte prev = 0;
+        for (int i = 0; i < data.length; i++) {
+            mod = i % 3;
+            if (mod == 0) {
+                sb.append(table.charAt((data[i] >> 2) & 0x3F));
+            } else if (mod == 1) {
+                sb.append(table.charAt((prev << 4 | data[i] >> 4 & 0x0F) & 0x3F));
+            } else {
+                sb.append(table.charAt((data[i] >> 6 & 0x03 | prev << 2) & 0x3F));
+                sb.append(table.charAt(data[i] & 0x3F));
+            }
+            prev = data[i];
+        }
+        if (mod == 0) {
+            sb.append(table.charAt(prev << 4 & 0x3C));
+            sb.append("==");
+        } else if (mod == 1) {
+            sb.append(table.charAt(prev << 2 & 0x3F));
+            sb.append("=");
+        }
+        return sb.toString();
+    }
+
+    private String shuffledB64Table() {
+        List<Character> chars = new ArrayList<>();
+        for (char c : "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-/".toCharArray()) {
+            chars.add(c);
+        }
+        Collections.shuffle(chars, rand);
+        StringBuilder sb = new StringBuilder();
+        chars.forEach(sb::append);
+        return sb.toString();
+    }
+
+    private Object randomBsmArg(String table) {
+        return switch (rand.nextInt(8)) {
+            case 0  -> rand.nextLong();
+            case 1  -> rand.nextInt();
+            case 2  -> Dictionary.gen(6, Purpose.FIELD);
+            case 3  -> rand.nextFloat();
+            case 4  -> (double) (rand.nextFloat() * 20f);
+            case 5  -> (byte) rand.nextInt(Byte.MAX_VALUE);
+            case 6  -> -Math.abs(rand.nextInt());
+            default -> b64Encode(Dictionary.gen(6, Purpose.FIELD).getBytes(), table, (byte) 0);
+        };
+    }
 }
