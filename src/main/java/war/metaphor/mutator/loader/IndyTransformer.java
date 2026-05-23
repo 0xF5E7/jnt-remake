@@ -19,9 +19,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 @Stability(Level.HIGH)
-public class IndyMutator extends Mutator {
+public class IndyTransformer extends Mutator {
 
-    public IndyMutator(ObfuscatorContext base, ConfigurationSection config) {
+    public IndyTransformer(ObfuscatorContext base, ConfigurationSection config) {
         super(base, config);
     }
 
@@ -106,20 +106,7 @@ public class IndyMutator extends Mutator {
                         }
 
                         int vBootstrapId = boostrapIds.computeIfAbsent(BytecodeUtil.toString(node), _ -> boostrapIds.size());
-//
-//                        InsnList appendixResult = new InsnList();
-//                        appendixResult.add(new LdcInsnNode(1));
-//                        appendixResult.add(new TypeInsnNode(ANEWARRAY, "java/lang/Object"));
-//                        appendixResult.add(new VarInsnNode(ASTORE, vCallSite));
-//                        appendixResult.add(new VarInsnNode(ALOAD, vCallSite));
-
-                        //static MemberName linkCallSite(Object callerObj,
-                        //                                   Object bootstrapMethodObj,
-                        //                                   Object nameObj, Object typeObj,
-                        //                                   Object staticArguments,
-                        //                                   Object[] appendixResult) {
                         InsnList list = new InsnList();
-
                         LabelNode preInvokeLabel = new LabelNode();
                         LabelNode invokeLabel = new LabelNode();
 
@@ -135,58 +122,30 @@ public class IndyMutator extends Mutator {
                         list.add(typeObj);
                         list.add(staticArguments);
                         list.add(callerObj);
-//                        list.add(appendixResult);
-
-
-                        //MethodHandle bootstrapMethod,
-                        //                             // Callee information:
-                        //                             String name, MethodType type,
-                        //                             // Extra arguments for BSM, if any:
-                        //                             Object info,
-                        //                             // Caller information:
-                        //                             Class<?> callerClass
-
-                        // FIX: CallSite.makeSite() is a package-private JDK internal method,
-                        // blocked by the module system on JVM 16+.  Replace with the equivalent
-                        // public API:
-                        //   1. Invoke the bootstrap method handle directly to get a CallSite.
-                        //   2. Call dynamicInvoker() on it to get the MethodHandle.
-                        // Stack at this point: bootstrapHandle, name, type, info, callerClass
-                        // We need: bootstrapHandle.invoke(lookup, name, type, info) -> CallSite
-                        // The info object is the static args array; callerClass is already on stack.
-                        // Simplest correct replacement: invoke BSM via MethodHandle.invoke with
-                        // the standard (Lookup, String, MethodType, Object...) signature.
-                        list.add(new InsnNode(POP)); // pop callerClass — not needed for public API
-                        list.add(new InsnNode(POP)); // pop staticArguments object ref
-                        // Stack now: bootstrapHandle, name (String), type (MethodType)
-                        // Rebuild using ConstantCallSite + asType so the result is cached properly
+                        list.add(new InsnNode(POP)); // pop callerClass    S: [MH, String, MethodType, Object[]]
+                        list.add(new InsnNode(POP)); // pop staticArguments S: [MH, String, MethodType]
+                        list.add(new InsnNode(POP)); // pop name (String)   S: [MH, MethodType]
                         list.add(new TypeInsnNode(NEW, "java/lang/invoke/ConstantCallSite"));
-                        list.add(new InsnNode(DUP_X2));   // ConstantCallSite under (handle, name, type)
-                        list.add(new InsnNode(POP));       // remove extra ConstantCallSite ref
-                        // We need (MethodHandle) on stack for ConstantCallSite.<init>
-                        // bootstrapHandle is a MethodHandle — call asType with the target MethodType
+                        list.add(new InsnNode(DUP_X2));   // S: [uninit_CCS, MH, MethodType, uninit_CCS]
+                        list.add(new InsnNode(POP));       // S: [uninit_CCS, MH, MethodType]
                         list.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "asType",
                                 "(Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/MethodHandle;", false));
+                        // S: [uninit_CCS, MH_adapted]
                         list.add(new MethodInsnNode(INVOKESPECIAL, "java/lang/invoke/ConstantCallSite", "<init>",
                                 "(Ljava/lang/invoke/MethodHandle;)V", false));
+                        // S: [CCS]
                         list.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/invoke/ConstantCallSite", "dynamicInvoker",
                                 "()Ljava/lang/invoke/MethodHandle;", false));
+                        // S: [MethodHandle]
                         list.add(new VarInsnNode(ASTORE, vCallSite));
                         list.add(new InsnNode(ICONST_0));
                         list.add(new VarInsnNode(ISTORE, cacheFlag));
                         list.add(new JumpInsnNode(GOTO, invokeLabel));
-
-//                        list.add(new MethodInsnNode(INVOKESTATIC, "java/lang/invoke/MethodHandleNatives", "linkCallSiteImpl", "(Ljava/lang/Class;Ljava/lang/invoke/MethodHandle;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/invoke/MemberName;", false));
-//                        list.add(new InsnNode(POP));
-
                         list.add(preInvokeLabel);
                         list.add(new InsnNode(ICONST_1));
                         list.add(new VarInsnNode(ISTORE, cacheFlag));
-
                         list.add(invokeLabel);
-
                         Type[] args = Type.getArgumentTypes(node.desc);
-
                         list.add(new LdcInsnNode(args.length));
                         list.add(new TypeInsnNode(ANEWARRAY, "java/lang/Object"));
                         list.add(new VarInsnNode(ASTORE, vStackArray));
@@ -210,24 +169,12 @@ public class IndyMutator extends Mutator {
                         list.add(new JumpInsnNode(IFEQ, saveLabel));
                         list.add(new JumpInsnNode(GOTO, notSaveLabel));
                         list.add(saveLabel);
-
                         list.add(new FieldInsnNode(GETSTATIC, classNode.name, methodHandlesCache.name, methodHandlesCache.desc));
                         list.add(BytecodeUtil.generateInteger(vBootstrapId));
                         list.add(new VarInsnNode(ALOAD, vCallSite));
                         list.add(new InsnNode(AASTORE));
-
                         list.add(notSaveLabel);
                         list.add(new VarInsnNode(ALOAD, vCallSite));
-
-//                        list.add(new InsnNode(ICONST_0));
-//                        list.add(new InsnNode(AALOAD));
-//                        list.add(new TypeInsnNode(CHECKCAST, "java/lang/invoke/MethodHandle"));
-//
-//                        list.add(new InsnNode(DUP));
-//                        list.add(new FieldInsnNode(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;"));
-//                        list.add(new InsnNode(SWAP));
-//                        list.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "toString", "()Ljava/lang/String;", false));
-//                        list.add(new MethodInsnNode(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V", false));
                         list.add(new VarInsnNode(ALOAD, vStackArray));
                         list.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "invokeWithArguments", "([Ljava/lang/Object;)Ljava/lang/Object;", false));
 
