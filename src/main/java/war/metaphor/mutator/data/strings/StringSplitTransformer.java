@@ -57,7 +57,7 @@ import java.util.Random;
  * @author jnt
  */
 @Stability(Level.HIGH)
-public class StringSplitMutator extends Mutator {
+public class StringSplitTransformer extends Mutator {
 
     private static final String STRINGBUILDER = "java/lang/StringBuilder";
 
@@ -66,7 +66,7 @@ public class StringSplitMutator extends Mutator {
     private final int minLength;
     private final int chance;
 
-    public StringSplitMutator(ObfuscatorContext base, ConfigurationSection config) {
+    public StringSplitTransformer(ObfuscatorContext base, ConfigurationSection config) {
         super(base, config);
         this.minParts  = config == null ? 2   : config.getInt("min-parts",  2);
         this.maxParts  = config == null ? 5   : config.getInt("max-parts",  5);
@@ -91,25 +91,18 @@ public class StringSplitMutator extends Mutator {
                 for (AbstractInsnNode insn : method.instructions.toArray()) {
                     // Bail if the method is getting too large
                     if (BytecodeUtil.leeway(method) < 30000) break;
-
                     if (!BytecodeUtil.isString(insn)) continue;
-
                     String str = BytecodeUtil.getString(insn);
                     if (str == null || str.length() < minLength) continue;
                     // JVM constant pool cap: encoded UTF-8 must fit in 65535 bytes.
                     if (str.length() > 65535) continue;
-
                     // Probabilistic skip
                     if (chance < 100 && rand.nextInt(100) >= chance) continue;
-
                     List<String> parts = split(str);
                     // Only replace if we actually cut it into more than one piece
                     if (parts.size() < 2) continue;
-
                     InsnList replacement = buildAppendChain(parts);
-
                     if (!BytecodeUtil.hasSpace(method, replacement)) continue;
-
                     method.instructions.insertBefore(insn, replacement);
                     method.instructions.remove(insn);
                 }
@@ -117,10 +110,6 @@ public class StringSplitMutator extends Mutator {
         }
     }
 
-    /**
-     * Splits {@code str} into [minParts..maxParts] sub-strings at random
-     * character boundaries.
-     */
     private List<String> split(String str) {
         int len = str.length();
 
