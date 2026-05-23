@@ -5,6 +5,7 @@ import war.jar.JarReader;
 import war.metaphor.base.ObfuscatorContext;
 import war.metaphor.mutator.integer.*;
 import war.metaphor.mutator.data.strings.*;
+import war.metaphor.mutator.data.strings.poly2.*;
 import war.metaphor.mutator.flow.*;
 import war.metaphor.mutator.rename.*;
 import war.metaphor.mutator.integrity.CallGraphIntegrityMutator;
