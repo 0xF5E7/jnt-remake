@@ -4,11 +4,7 @@ import war.configuration.ConfigurationSection;
 import war.jar.JarReader;
 import war.metaphor.base.ObfuscatorContext;
 import war.metaphor.mutator.integer.*;
-import war.metaphor.mutator.data.strings.LightStringMutator;
-import war.metaphor.mutator.data.strings.StringMutator;
-import war.metaphor.mutator.data.strings.StringSplitMutator;
-import war.metaphor.mutator.data.strings.StringStackTransformer;
-import war.metaphor.mutator.data.strings.poly2.NewStringMutator;
+import war.metaphor.mutator.data.strings.*;
 import war.metaphor.mutator.flow.*;
 import war.metaphor.mutator.rename.*;
 import war.metaphor.mutator.integrity.CallGraphIntegrityMutator;
@@ -68,10 +64,10 @@ public class Metaphor {
                 .mutator("anti-tamper", AntiTamperTransformer.class)
                 .mutator("anti-tamper", AntiDumpTransformer.class)
 
-                .mutator("string.poly", StringMutator.class)
-                .mutator("string.poly2", NewStringMutator.class)
-                .mutator("string.light", LightStringMutator.class)
-                .mutator("string.split", StringSplitMutator.class)
+                .mutator("string.poly", StringTransformer.class)
+                .mutator("string.poly2", NewStringTransformer.class)
+                .mutator("string.light", LightStringTransformer.class)
+                .mutator("string.split", StringSplitTransformer.class)
                 .mutator("string.stack", StringStackTransformer.class)
                 .mutator("ahegao", AhegaoTransformer.class)
             
