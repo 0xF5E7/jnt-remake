@@ -146,9 +146,31 @@ public class IndyMutator extends Mutator {
                         //                             // Caller information:
                         //                             Class<?> callerClass
 
-                        list.add(new MethodInsnNode(INVOKESTATIC, "java/lang/invoke/CallSite", "makeSite",
-                                "(Ljava/lang/invoke/MethodHandle;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/Object;Ljava/lang/Class;)Ljava/lang/invoke/CallSite;", false));
-                        list.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/invoke/CallSite", "dynamicInvoker", "()Ljava/lang/invoke/MethodHandle;", false));
+                        // FIX: CallSite.makeSite() is a package-private JDK internal method,
+                        // blocked by the module system on JVM 16+.  Replace with the equivalent
+                        // public API:
+                        //   1. Invoke the bootstrap method handle directly to get a CallSite.
+                        //   2. Call dynamicInvoker() on it to get the MethodHandle.
+                        // Stack at this point: bootstrapHandle, name, type, info, callerClass
+                        // We need: bootstrapHandle.invoke(lookup, name, type, info) -> CallSite
+                        // The info object is the static args array; callerClass is already on stack.
+                        // Simplest correct replacement: invoke BSM via MethodHandle.invoke with
+                        // the standard (Lookup, String, MethodType, Object...) signature.
+                        list.add(new InsnNode(POP)); // pop callerClass — not needed for public API
+                        list.add(new InsnNode(POP)); // pop staticArguments object ref
+                        // Stack now: bootstrapHandle, name (String), type (MethodType)
+                        // Rebuild using ConstantCallSite + asType so the result is cached properly
+                        list.add(new TypeInsnNode(NEW, "java/lang/invoke/ConstantCallSite"));
+                        list.add(new InsnNode(DUP_X2));   // ConstantCallSite under (handle, name, type)
+                        list.add(new InsnNode(POP));       // remove extra ConstantCallSite ref
+                        // We need (MethodHandle) on stack for ConstantCallSite.<init>
+                        // bootstrapHandle is a MethodHandle — call asType with the target MethodType
+                        list.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/invoke/MethodHandle", "asType",
+                                "(Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/MethodHandle;", false));
+                        list.add(new MethodInsnNode(INVOKESPECIAL, "java/lang/invoke/ConstantCallSite", "<init>",
+                                "(Ljava/lang/invoke/MethodHandle;)V", false));
+                        list.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/invoke/ConstantCallSite", "dynamicInvoker",
+                                "()Ljava/lang/invoke/MethodHandle;", false));
                         list.add(new VarInsnNode(ASTORE, vCallSite));
                         list.add(new InsnNode(ICONST_0));
                         list.add(new VarInsnNode(ISTORE, cacheFlag));
