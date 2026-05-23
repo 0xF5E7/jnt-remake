@@ -15,10 +15,7 @@ import war.metaphor.mutator.integrity.CallGraphIntegrityMutator;
 import war.metaphor.mutator.anti.*;
 import war.metaphor.mutator.integrity.mainCallCheck.MainCallCheckMutator;
 import war.metaphor.mutator.integrity.method.MethodIntegrityMutator;
-import war.metaphor.mutator.loader.CleanupMutator;
-import war.metaphor.mutator.loader.IndyMutator;
-import war.metaphor.mutator.loader.IntegrateLoaderMutator;
-import war.metaphor.mutator.loader.MultiNewArrayMutator;
+import war.metaphor.mutator.loader.*;
 import war.metaphor.mutator.misc.*;
 import war.metaphor.mutator.optimization.OptimizationMutator;
 import war.metaphor.mutator.optimization.UnusedClassMutator;
@@ -105,7 +102,7 @@ public class Metaphor {
 
                 .mutator("virtualize", VirtualizingMutator.class)
 
-                .mutator("indy-rewriter", IndyMutator.class)
+                .mutator("indy-rewriter", IndyTransformer.class)
 
                 .mutator("splash-screen", SplashScreenMutator.class)
 
