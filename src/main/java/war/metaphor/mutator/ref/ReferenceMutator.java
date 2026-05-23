@@ -153,7 +153,7 @@ public class ReferenceMutator extends Mutator {
             cmpFieldName, "I", null, null));
 
         // ── inject key initialisation into <clinit> ──────────────────────────
-        MethodNode clinit = classNode.getClinit();
+        MethodNode clinit = classNode.getStaticInit();
         InsnList init = new InsnList();
         init.add(new LdcInsnNode(opcodeKey));
         init.add(new FieldInsnNode(Opcodes.PUTSTATIC, classNode.name, keyFieldName, "I"));
