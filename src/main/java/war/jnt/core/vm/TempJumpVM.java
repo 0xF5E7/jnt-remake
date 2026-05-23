@@ -8,23 +8,17 @@ import war.metaphor.util.interfaces.IRandom;
 
 import java.util.*;
 
-/**
- * Gets initialized once for every natived method
- * @author jan
- */
 public class TempJumpVM implements IRandom {
     private final Map<EnumVMOperation, ArrayList<IMath>> opToMathMap = new HashMap<>();
     private final StringBuilder builder;
-    public final Map<EnumVMOperation, Integer> opToIntMap =
-            new HashMap<>();
+    public final Map<EnumVMOperation, Integer> opToIntMap = new HashMap<>();
     public int vmLabelCount = 0;
 
     private final boolean enabled;
 
     public TempJumpVM(StringBuilder builder, boolean vm, int chance) {
         this.builder = builder;
-
-        enabled = vm;
+        this.enabled = vm;
 
         if (!enabled) return;
 
@@ -33,29 +27,23 @@ public class TempJumpVM implements IRandom {
             do {
                 v = RANDOM.nextInt(255);
             } while (opToIntMap.containsValue(v));
-
             opToIntMap.put(value, v);
 
             ArrayList<IMath> math = new ArrayList<>();
-
-            {
-                if (Chance.chance(chance)) {
-                    for (int i = 0; i < RANDOM.nextInt(5) + 5; i++) {
-                        math.add(switch (RANDOM.nextInt(2)) {
-                            case 0 -> new ParityBasedMath();
-                            case 1 -> new SwitchBasedMath();
-                            default -> throw new IllegalStateException("Unexpected value");
-                        });
-                    }
+            if (Chance.chance(chance)) {
+                for (int i = 0; i < RANDOM.nextInt(5) + 5; i++) {
+                    math.add(switch (RANDOM.nextInt(2)) {
+                        case 0 -> new ParityBasedMath();
+                        case 1 -> new SwitchBasedMath();
+                        default -> throw new IllegalStateException("Unexpected value");
+                    });
                 }
             }
-
             opToMathMap.put(value, math);
         }
     }
 
     public void insertSetupCode() {
-
         builder.append("\t/* this is for the native vm */\n");
 
         ArrayList<String> yes = new ArrayList<>(List.of(
@@ -65,16 +53,13 @@ public class TempJumpVM implements IRandom {
                 "\tunsigned char mode = 0;\n",
                 "\tint id = 0;\n"
         ));
-
         Collections.shuffle(yes);
-
-        for (String s : yes) {
-            builder.append(s);
-        }
+        for (String s : yes) builder.append(s);
     }
 
-    public String getCode(String computedA, String computedB, String computedPush, EnumVMOperation op) {
+    // ── int operation dispatch ────────────────────────────────────────────────
 
+    public String getCode(String computedA, String computedB, String computedPush, EnumVMOperation op) {
         if (!enabled) {
             return String.format("""
                     \targ1 = %s.i;
@@ -94,29 +79,63 @@ public class TempJumpVM implements IRandom {
                         \tgoto vmout;
                         id%d:
                         %s
-                        """, op.name(), opToIntMap.get(op), computedB, computedA, vmLabelCount, vmLabelCount, getReversedMath(computedPush, op));
+                        """, op.name(), opToIntMap.get(op), computedB, computedA,
+                vmLabelCount, vmLabelCount, getReversedMath(computedPush + ".i", op));
 
         vmLabelCount++;
-
         return output;
     }
 
-    public String getReversedMath(String computedPush, EnumVMOperation op) {
-        StringBuilder sb = new StringBuilder();
+    // ── long operation dispatch ───────────────────────────────────────────────
 
+    /**
+     * Like {@link #getCode} but loads/stores the {@code .j} (jlong) field
+     * instead of {@code .i} (jint).
+     */
+    public String getLongCode(String computedA, String computedB, String computedPush, EnumVMOperation op) {
+        if (!enabled) {
+            return String.format("""
+                    \targ1 = %s.j;
+                    \targ2 = %s.j;
+                    \tasm volatile ("" ::: "memory");
+                    %s
+                    \t%s.j = output;
+                    """, computedB, computedA, getMathCode(op).replace("\t\t\t", "\t"), computedPush);
+        }
+
+        String output = String.format("""
+                        \t/* vm call (%s) */
+                        \tmode = %d;
+                        \targ1 = %s.j;
+                        \targ2 = %s.j;
+                        \tid = %d;
+                        \tgoto vmout;
+                        id%d:
+                        %s
+                        """, op.name(), opToIntMap.get(op), computedB, computedA,
+                vmLabelCount, vmLabelCount, getReversedMath(computedPush + ".j", op));
+
+        vmLabelCount++;
+        return output;
+    }
+
+    public String getReversedMath(String assignTarget, EnumVMOperation op) {
+        StringBuilder sb = new StringBuilder();
         for (IMath iMath : opToMathMap.get(op).reversed()) {
             sb.append(iMath.reverse(1));
         }
+        if (assignTarget == null) return sb.toString();
+        return String.format("%s\t%s = output;", sb, assignTarget);
+    }
 
-        if (computedPush == null) {
-            return sb.toString();
-        }
-
-        return String.format("%s\t%s.i = output;", sb, computedPush);
+    /** @deprecated Use {@link #getReversedMath(String, EnumVMOperation)} */
+    @Deprecated
+    public String getReversedMath(String computedPush, EnumVMOperation op) {
+        if (computedPush == null) return getReversedMath((String) null, op);
+        return getReversedMath(computedPush, op);
     }
 
     public void buildVM() {
-
         if (!enabled) return;
 
         builder.append("""
@@ -158,16 +177,15 @@ public class TempJumpVM implements IRandom {
 
     private String getComputation(EnumVMOperation value) {
         StringBuilder sb = new StringBuilder();
-
         for (IMath iMath : opToMathMap.get(value)) {
             sb.append(iMath.compute(3));
         }
-
         return sb.toString();
     }
 
     public String getMathCode(EnumVMOperation value) {
         return switch (value) {
+            // ── int (32-bit) SSE2 operations ─────────────────────────────────
             case ADD -> """
             \t\t\t{
             \t\t\t\t__m128i va = _mm_set1_epi32((jint)(*(volatile juint *)&arg1));
@@ -258,11 +276,104 @@ public class TempJumpVM implements IRandom {
             \t\t\t\toutput = _mm_cvtsi128_si32(t1);
             \t\t\t}
             """;
+
+            // ── long (64-bit) operations ──────────────────────────────────────
+            // SSE2 is used where available; plain C is used for divide/shift-right
+            // (no portable 64-bit arithmetic-shift or divide intrinsic in SSE2).
+            case LADD -> """
+            \t\t\t{
+            \t\t\t\t__m128i va = _mm_set_epi64x(0, (jlong)(*(volatile julong *)&arg1));
+            \t\t\t\t__m128i vb = _mm_set_epi64x(0, (jlong)(*(volatile julong *)&arg2));
+            \t\t\t\t__m128i t1 = _mm_add_epi64(va, vb);
+            \t\t\t\toutput = _mm_cvtsi128_si64(t1);
+            \t\t\t}
+            """;
+            case LSUBTRACT -> """
+            \t\t\t{
+            \t\t\t\t__m128i va = _mm_set_epi64x(0, (jlong)(*(volatile julong *)&arg1));
+            \t\t\t\t__m128i vb = _mm_set_epi64x(0, (jlong)(*(volatile julong *)&arg2));
+            \t\t\t\t__m128i t1 = _mm_sub_epi64(va, vb);
+            \t\t\t\toutput = _mm_cvtsi128_si64(t1);
+            \t\t\t}
+            """;
+            case LMULTIPLY -> """
+            \t\t\t{
+            \t\t\t\t/* No portable SSE2 64-bit multiply; use plain C */
+            \t\t\t\tjlong a = *(volatile jlong *)&arg1;
+            \t\t\t\tjlong b = *(volatile jlong *)&arg2;
+            \t\t\t\toutput = (jlong)((julong)a * (julong)b);
+            \t\t\t}
+            """;
+            case LDIVIDE -> """
+            \t\t\t{
+            \t\t\t\tjlong a = *(volatile jlong *)&arg1;
+            \t\t\t\tjlong b = *(volatile jlong *)&arg2;
+            \t\t\t\tif (b == 0) output = 0;
+            \t\t\t\telse if (a == (jlong)0x8000000000000000LL && b == -1LL) output = a;
+            \t\t\t\telse output = a / b;
+            \t\t\t}
+            """;
+            case LREMAINDER -> """
+            \t\t\t{
+            \t\t\t\tjlong a = *(volatile jlong *)&arg1;
+            \t\t\t\tjlong b = *(volatile jlong *)&arg2;
+            \t\t\t\tif (b == 0) output = 0;
+            \t\t\t\telse if (a == (jlong)0x8000000000000000LL && b == -1LL) output = 0;
+            \t\t\t\telse output = a % b;
+            \t\t\t}
+            """;
+            case LXOR -> """
+            \t\t\t{
+            \t\t\t\t__m128i va = _mm_set_epi64x(0, (jlong)(*(volatile julong *)&arg1));
+            \t\t\t\t__m128i vb = _mm_set_epi64x(0, (jlong)(*(volatile julong *)&arg2));
+            \t\t\t\t__m128i t1 = _mm_xor_si128(va, vb);
+            \t\t\t\toutput = _mm_cvtsi128_si64(t1);
+            \t\t\t}
+            """;
+            case LAND -> """
+            \t\t\t{
+            \t\t\t\t__m128i va = _mm_set_epi64x(0, (jlong)(*(volatile julong *)&arg1));
+            \t\t\t\t__m128i vb = _mm_set_epi64x(0, (jlong)(*(volatile julong *)&arg2));
+            \t\t\t\t__m128i t1 = _mm_and_si128(va, vb);
+            \t\t\t\toutput = _mm_cvtsi128_si64(t1);
+            \t\t\t}
+            """;
+            case LOR -> """
+            \t\t\t{
+            \t\t\t\t__m128i va = _mm_set_epi64x(0, (jlong)(*(volatile julong *)&arg1));
+            \t\t\t\t__m128i vb = _mm_set_epi64x(0, (jlong)(*(volatile julong *)&arg2));
+            \t\t\t\t__m128i t1 = _mm_or_si128(va, vb);
+            \t\t\t\toutput = _mm_cvtsi128_si64(t1);
+            \t\t\t}
+            """;
+            case LSHIFT_LEFT -> """
+            \t\t\t{
+            \t\t\t\t__m128i va = _mm_set_epi64x(0, (jlong)(*(volatile julong *)&arg1));
+            \t\t\t\t__m128i sc = _mm_cvtsi32_si128(*(volatile jint *)&arg2 & 63);
+            \t\t\t\t__m128i t1 = _mm_sll_epi64(va, sc);
+            \t\t\t\toutput = _mm_cvtsi128_si64(t1);
+            \t\t\t}
+            """;
+            case LSHIFT_RIGHT -> """
+            \t\t\t{
+            \t\t\t\t/* Arithmetic right shift: SSE2 _mm_sra_epi64 not available; use C */
+            \t\t\t\tjlong a = *(volatile jlong *)&arg1;
+            \t\t\t\tjint  s = *(volatile jint  *)&arg2 & 63;
+            \t\t\t\toutput  = a >> s;
+            \t\t\t}
+            """;
+            case LUSHIFT_RIGHT -> """
+            \t\t\t{
+            \t\t\t\t__m128i va = _mm_set_epi64x(0, (jlong)(*(volatile julong *)&arg1));
+            \t\t\t\t__m128i sc = _mm_cvtsi32_si128(*(volatile jint *)&arg2 & 63);
+            \t\t\t\t__m128i t1 = _mm_srl_epi64(va, sc);
+            \t\t\t\toutput = _mm_cvtsi128_si64(t1);
+            \t\t\t}
+            """;
         };
     }
 
     public void makeValue(int orig) {
-
         if (!enabled) {
             builder.append("\t/* direct assignment */\n");
             builder.append("\toutput = ").append(orig).append(";\n");
@@ -274,15 +385,16 @@ public class TempJumpVM implements IRandom {
         EnumVMOperation op;
 
         if (val1 > orig) {
-            op = EnumVMOperation.SUBTRACT;
+            op   = EnumVMOperation.SUBTRACT;
             val2 = val1 - orig;
         } else if (val1 < orig) {
-            op = EnumVMOperation.ADD;
+            op   = EnumVMOperation.ADD;
             val2 = orig - val1;
         } else {
-            op = EnumVMOperation.MULTIPLY;
+            op   = EnumVMOperation.MULTIPLY;
             val2 = 1;
         }
+
         builder.append(String.format("""
                         \t/* vm call (%s) */
                         \tmode = %d;
@@ -292,7 +404,8 @@ public class TempJumpVM implements IRandom {
                         \tgoto vmout;
                         id%d:
                         %s
-                        """, op.name(), opToIntMap.get(op), val1, val2, vmLabelCount, vmLabelCount, getReversedMath(null, op)));
+                        """, op.name(), opToIntMap.get(op), val1, val2,
+                vmLabelCount, vmLabelCount, getReversedMath((String) null, op)));
 
         vmLabelCount++;
     }
