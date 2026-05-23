@@ -14,9 +14,9 @@ import war.metaphor.util.asm.BytecodeUtil;
 /**
  */
 @Stability(Level.MEDIUM)
-public class LightStringMutator extends Mutator {
+public class LightStringTransformer extends Mutator {
 
-    public LightStringMutator(ObfuscatorContext base, ConfigurationSection config) {
+    public LightStringTransformer(ObfuscatorContext base, ConfigurationSection config) {
         super(base, config);
     }
 
