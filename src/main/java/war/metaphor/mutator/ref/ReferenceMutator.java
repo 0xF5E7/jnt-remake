@@ -232,7 +232,8 @@ public class ReferenceMutator extends Mutator {
         int vDesc    = 10 + extraCount; // String
         int vClass   = 11 + extraCount; // Class<?>
         int vType    = 12 + extraCount; // MethodType
-        int vHandle  = 13 + extraCount; // MethodHandle
+        // vHandle removed — MethodHandle is kept on the operand stack directly
+        // to avoid local variable index corruption when the inliner rewrites frames
 
         // ── decode opcode ────────────────────────────────────────────────────
         mv.visitVarInsn(Opcodes.ALOAD, 3);             // encodedOpcode (Object)
@@ -337,22 +338,51 @@ public class ReferenceMutator extends Mutator {
             "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/invoke/MethodType;)" +
             "Ljava/lang/invoke/MethodHandle;", false);
 
-        mv.visitLabel(lblDone);
-        mv.visitVarInsn(Opcodes.ASTORE, vHandle);
-
         // ── return new ConstantCallSite(handle.asType(type)) ─────────────────
-        // Using ConstantCallSite — fully public, works JVM 7+
-        mv.visitTypeInsn(Opcodes.NEW, "java/lang/invoke/ConstantCallSite");
-        mv.visitInsn(Opcodes.DUP);
-        mv.visitVarInsn(Opcodes.ALOAD, vHandle);
-        mv.visitVarInsn(Opcodes.ALOAD, 2);            // target MethodType
+        // Both branches (findVirtual + findStatic) leave a MethodHandle on the
+        // stack and GOTO here. We avoid ASTORE/ALOAD entirely — no local variable
+        // for the handle, so the verifier never sees a stale type from an inlined
+        // frame. Stack at lblDone: [ MethodHandle ]
+        //
+        // Goal: new ConstantCallSite(handle.asType(type))
+        // We need stack: [ uninit, MethodHandle.asType(type) ] for INVOKESPECIAL.
+        // Build it as:
+        //   ALOAD 2          → stack: [ MH, MethodType ]
+        //   INVOKEVIRTUAL asType → stack: [ MH' ]
+        //   NEW ConstantCallSite → stack: [ MH', uninit ]
+        //   DUP_X1           → stack: [ uninit, MH', uninit ]
+        //   POP              → stack: [ uninit, MH' ]  (wrong — need uninit first)
+        // Cleaner: store handle, new+dup, reload — but that reintroduces the bug.
+        // Safest: asType first, then new+dup+swap:
+        //   stack entry: [ MethodHandle ]
+        //   ALOAD 2          → [ MethodHandle, MethodType ]
+        //   INVOKEVIRTUAL asType → [ MethodHandle' ]   (adapted handle)
+        //   NEW ConstantCallSite → [ MethodHandle', uninit ]
+        //   DUP_X1           → [ uninit, MethodHandle', uninit ]
+        //   POP              → stack is wrong; need [ uninit, MethodHandle' ]
+        // Correct approach with swap:
+        //   ALOAD 2          → [ MH, MethodType ]
+        //   INVOKEVIRTUAL asType → [ adaptedMH ]
+        //   NEW ConstantCallSite → [ adaptedMH, uninit ]
+        //   SWAP             → [ uninit, adaptedMH ]   ← correct for INVOKESPECIAL
+        //   INVOKESPECIAL <init>(MH) → [ ConstantCallSite ]
+        //   ARETURN
+        mv.visitLabel(lblDone);
+        // stack: [ MethodHandle ]
+        mv.visitVarInsn(Opcodes.ALOAD, 2);            // stack: [ MH, MethodType ]
         mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/invoke/MethodHandle",
             "asType", "(Ljava/lang/invoke/MethodType;)Ljava/lang/invoke/MethodHandle;", false);
+        // stack: [ adaptedMH ]
+        mv.visitTypeInsn(Opcodes.NEW, "java/lang/invoke/ConstantCallSite");
+        // stack: [ adaptedMH, uninit ]
+        mv.visitInsn(Opcodes.SWAP);
+        // stack: [ uninit, adaptedMH ]
         mv.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/lang/invoke/ConstantCallSite",
             "<init>", "(Ljava/lang/invoke/MethodHandle;)V", false);
+        // stack: [ ConstantCallSite ]
         mv.visitInsn(Opcodes.ARETURN);
 
-        mv.visitMaxs(8, vHandle + 1);
+        mv.visitMaxs(6, vDesc + 1);
         mv.visitEnd();
     }
 
@@ -365,11 +395,7 @@ public class ReferenceMutator extends Mutator {
         MethodVisitor mv = classNode.visitMethod(
             Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_VARARGS | Opcodes.ACC_SYNTHETIC,
             methodName, methodDesc, null, null);
-
-        // This is a straight port of ArkObf's insertDecodeMethod —
-        // same algorithm, same local variable layout, same branching.
-        // The full bytecode visitor sequence is reproduced verbatim so
-        // the decode logic is correct at runtime regardless of string content.
+        
         mv.visitCode();
         Label l0 = new Label(), l1 = new Label(), l2 = new Label(),
               l3 = new Label(), l4 = new Label(), l5 = new Label(),
