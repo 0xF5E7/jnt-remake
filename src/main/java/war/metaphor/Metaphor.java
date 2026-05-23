@@ -103,7 +103,7 @@ public class Metaphor {
 
                 .mutator("splash-screen", SplashScreenMutator.class)
 
-                //.mutator("goto-to-jsr", GotoToJsrMutator.class)
+                .mutator("goto-to-jsr", GotoToJsrMutator.class)
                 .mutator("array-rewriter", MultiNewArrayMutator.class)
 
                 .mutator("runtime-patch", RuntimePatchMutator.class)
