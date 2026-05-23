@@ -24,19 +24,14 @@ public class CombinationGenerator {
     public static void main(String[] args) {
 
         Logger logger = Logger.INSTANCE;
-
         File comboConfig = new File("src/test/resources/combo.yml");
-
         Map<String, List<String>> mutators = new HashMap<>();
-
         String root = "mutators.metaphor.transformers.";
 
         mutators.put("inlining", List.of("inlining"));
         mutators.put("access-unify", List.of("access-unify"));
         mutators.put("field-initialize", List.of("field-initialize"));
-        mutators.put("renamer", List.of("renamer.method",
-                "renamer.class",
-                "renamer.field"));
+        mutators.put("renamer", List.of("renamer.method","renamer.class","renamer.field"));
         mutators.put("string-light", List.of("string.light"));
         mutators.put("string-poly", List.of("string.poly"));
         mutators.put("flow", List.of("flow.flattening", "flow.shuffle", "flow.break"));
