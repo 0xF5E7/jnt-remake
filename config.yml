@@ -1,0 +1,249 @@
+input: jnicx.jar
+output: jnicx-jnt.jar
+
+compiler:
+  os: windows
+  arch: x86_64
+  version: 0.15.2
+
+zig:
+  os: windows
+  arch: x86_64
+  version: 0.15.2
+  installation: zig
+
+targets:
+  - x86_64-windows
+  #- x86_64-linux
+
+debug:
+  compilation:
+    - x86_64-windows
+    #- x86_64-linux
+
+fingerprint: false
+
+jnt-path: dev/ark
+mutators:
+  metaphor:
+    order:
+    #  - anti-debug
+    #  - anti-dump
+      - renamer.class
+      - renamer.method
+      - renamer.field
+      - renamer.desc
+    #  - ref
+      - mutilate-return
+      - splash-screen
+      - access-unify
+      - dot-graph
+      - inlining
+      - field-initialize
+      - lift-constructors
+      - internal-class-integrator
+      - unused-method-remover
+      - unused-class-remover
+      #      - main-call-check
+      #      - method-integrity
+      - string.stack
+      - string.split
+      - string.light  #working
+    #  - string.poly
+    #  - string.pooly2  #working
+    #  - ahegao  ## not wrorking  
+    # - flow.break
+      - flow.shuffle
+      - flow.traps
+      - flow.flattening
+    #  - flow.opaque 
+      - flow.switch
+      - flow.shuffle
+      - method-split
+      - number.salt
+      - number.table
+      - dead-code
+      - call-graph
+      - watermark
+     # - anti-tamper
+      - strip
+      - optimizer
+      - dot-graph
+      - array-rewriter
+      - indy-rewriter
+    #  - runtime-patch
+    transformers:
+      mutilate-return:
+        enabled: true
+
+      splash-screen:
+        enabled: false
+
+      optimizer:
+        enabled: false
+
+      inlining:
+        enabled: true
+        debug: false
+        iterate: false
+        skip-transpiled-checks: false
+
+      field-initialize:
+        enabled: true
+
+      access-unify:
+        enabled: true
+        exploit: false
+
+      unused-method-remover:
+        enabled: false
+      unused-class-remover:
+        enabled: false
+
+      renamer:
+        method:
+          enabled: true
+        field:
+          enabled: true
+        desc:
+          enabled: true
+        class:
+          enabled: true
+
+      main-call-check:
+        entry: 'dev/xyz/entrypoint/EntrypointKt'
+        enabled: false
+
+      call-graph:
+        enabled: true
+#--------------------------------
+      anti-debug:
+        enabled: false
+        reaction: exit
+        check-jdwp: true
+        check-agents: true
+        check-tools: true
+        check-threads: true
+        injection-chance: 20
+
+      anti-tamper:
+        enabled: false
+        reaction: exit         # exit | throw
+        injection-chance: 20   # keep low to avoid method-too-large
+
+      anti-dump:
+        enabled: false
+        reaction: exit
+        check-attach: true
+        check-args: true
+        check-agents: true
+        check-props: true
+        injection-chance: 29
+#-------------------------------
+
+      method-integrity:
+        enabled: false
+
+      string:
+        poly:
+          enabled: false
+        poly2:
+          enabled: false
+        light:
+          enabled: true
+
+      string.stack:       # replaces every LDC "string" with a char-by-char StringBuilder sequence
+        enabled: true
+        min-length: 2
+        max-length: 64     # keep low — each char = ~4 instructions
+        xor-key: 0x5A        # set e.g. 0x5A to hide char values in bytecode to o
+
+      ahegao:
+        enabled: false
+
+      string.split:
+        enabled: true
+        min-parts: 3            # split every string into at least 3 fragments
+        max-parts: 6
+        min-length: 3           # split even short strings
+        chance: 100
+#---------------------
+
+      ref:
+        enabled: false
+
+      flow:
+        shuffle:
+          enabled: true
+        break:
+          enabled: false
+        traps:
+          enabled: true
+        flattening:
+          enabled: true
+        switch:
+          enabled: true
+        opaque:
+          enabled: false
+
+      dead-code:
+        enabled: true
+        injections-per-method: 4   # max dead blocks inserted per method
+        chance: 85                 # % chance to inject at each eligible site
+
+      method-split:
+        enabled: true
+        min-insn: 40
+        parts: 2
+        chance: 80
+
+      number:
+        salt:
+          enabled: true
+          level: HiGH
+          skipBsm: true
+        table:
+          enabled: true
+
+      lift-constructors:
+        enabled: false
+
+      strip:
+        enabled: true
+
+      watermark:
+        enabled: true
+
+      array-rewriter:
+        enabled: true
+      indy-rewriter:
+        enabled: true
+
+      dot-graph:
+        enabled: false
+
+      exchange:
+        enabled: true
+
+      method-call-fix:
+        enabled: false
+
+      runtime-patch:
+        enabled: false
+  jnt:
+    order:
+      - cleanup
+      - integrate
+    transformers:
+      cleanup:
+        enabled: true
+      integrate:
+        enabled: true
+
+    virtualize:
+      enabled: true
+      chance: 100
+
+    intrinsic: false
+
+    traceless: true
