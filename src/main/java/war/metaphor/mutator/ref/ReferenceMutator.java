@@ -217,7 +217,7 @@ public class ReferenceMutator extends Mutator {
         ClassWriter cw = new ClassWriter(0);
         // We use a MethodVisitor directly so we control every instruction precisely
         MethodVisitor mv = classNode.visitMethod(
-            Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_VARARGS,
+            Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_VARARGS | Opcodes.ACC_SYNTHETIC,
             bsmName, bsmDesc, null, new String[]{"java/lang/Throwable"});
 
         mv.visitCode();
@@ -312,18 +312,14 @@ public class ReferenceMutator extends Mutator {
         mv.visitJumpInsn(Opcodes.IF_ICMPEQ, lblStatic);
 
         // findVirtual
+        // vType is built from m.desc (the original descriptor without the receiver),
+        // so it is already the correct MethodType for findVirtual — no dropParameterTypes needed.
+        // Stack: Lookup, Class, String, MethodType -> findVirtual -> MethodHandle
         mv.visitLabel(lblVirtual);
         mv.visitVarInsn(Opcodes.ALOAD, 0);            // Lookup
-        mv.visitVarInsn(Opcodes.ALOAD, vClass);
-        mv.visitVarInsn(Opcodes.ALOAD, vMethod);
-        // Strip receiver from MethodType for findVirtual
-        mv.visitVarInsn(Opcodes.ALOAD, vType);
-        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/invoke/MethodType",
-            "dropParameterTypes", "(II)Ljava/lang/invoke/MethodType;",false);
-        // dropParameterTypes(0, 1) removes the prepended receiver Object
-        // We need to call it with (0, 1):
-        //   - already on stack is the MethodType; we need to pass (0, 1)
-        //   Actually let's redo — load type and call dropParameterTypes properly
+        mv.visitVarInsn(Opcodes.ALOAD, vClass);       // declaring class
+        mv.visitVarInsn(Opcodes.ALOAD, vMethod);      // method name
+        mv.visitVarInsn(Opcodes.ALOAD, vType);        // original MethodType (no receiver)
         mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/invoke/MethodHandles$Lookup",
             "findVirtual",
             "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/invoke/MethodType;)" +
@@ -367,7 +363,7 @@ public class ReferenceMutator extends Mutator {
                                      String methodName, String methodDesc,
                                      String table, int extraCount) {
         MethodVisitor mv = classNode.visitMethod(
-            Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_VARARGS,
+            Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_VARARGS | Opcodes.ACC_SYNTHETIC,
             methodName, methodDesc, null, null);
 
         // This is a straight port of ArkObf's insertDecodeMethod —
