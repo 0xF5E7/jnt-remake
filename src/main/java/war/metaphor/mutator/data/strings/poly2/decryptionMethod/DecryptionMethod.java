@@ -321,7 +321,9 @@ public final class DecryptionMethod implements Opcodes
             Dictionary.addUsed(method.name, Purpose.METHOD);
         }
 
-        return Dictionary.gen(1, Purpose.METHOD);
+        // length=1 with 26-char alphabet exhausts after ~26 names — hangs on any real JAR.
+        // Use length=8 with ALPHA mode (62-char alphabet = 62^8 > 200 billion unique names).
+        return Dictionary.gen(8, Purpose.METHOD, Dictionary.Mode.ALPHA, "");
     }
 
     private String makeDescriptor()
@@ -405,7 +407,8 @@ public final class DecryptionMethod implements Opcodes
             Dictionary.addUsed(field.name, Purpose.FIELD);
         }
 
-        return Dictionary.gen(1, Purpose.FIELD);
+        // Same fix: use length=8 ALPHA to avoid exhausting the 26-char namespace.
+        return Dictionary.gen(8, Purpose.FIELD, Dictionary.Mode.ALPHA, "");
     }
 
     public byte[] encrypt(Map.Entry<String, Pair<AbstractDecryptionMethodArgument, Object>[]> entry)
