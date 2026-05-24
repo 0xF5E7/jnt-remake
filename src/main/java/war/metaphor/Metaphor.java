@@ -83,8 +83,8 @@ public class Metaphor {
                 .mutator("number.salt", SaltingIntegerTransformer.class)
                 .mutator("number.table", IntegerTableTransformer.class)
                 .mutator("mba", MBATransformer.class)
-                .mutator("dead-code",       DeadCodeInjectorTransformer.class)
-                 
+                .mutator("dead-code",       DeadCodeInjectorTransformer.class
+                .mutator("virtualize",  VirtualizingTransformer.class)  
                 
 
                 .mutator("ref", ReferenceMutator.class)
@@ -96,8 +96,6 @@ public class Metaphor {
                 .mutator("strip", StripMutator.class)
 
                 .mutator("dot-graph", DotExportMutator.class)
-
-                .mutator("virtualize", VirtualizingTransformer.class)
 
                 .mutator("indy-rewriter", IndyTransformer.class)
 
