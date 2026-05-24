@@ -63,6 +63,7 @@ mutators:
       - number.salt
       - number.table
       - dead-code
+      - virtualize
       - call-graph
       - watermark
      # - anti-tamper
@@ -190,6 +191,11 @@ mutators:
         enabled: true
         injections-per-method: 4   # max dead blocks inserted per method
         chance: 85                 # % chance to inject at each eligible site
+
+    virtualize:
+      enabled: true
+      chance: 75   # % of integer constants to virtualize (0-100)
+        
 
       method-split:
         enabled: true
