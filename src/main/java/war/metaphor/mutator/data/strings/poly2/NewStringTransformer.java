@@ -52,7 +52,7 @@ public final class NewStringTransformer extends Mutator
 
             boolean added = false;
 
-            final DecryptionMethod method = new DecryptionMethod(jClassNode);
+            final DecryptionMethod method = new DecryptionMethod(jClassNode, libPath);
             final MethodNode methodNode = method.toMethodNode();
             for (final MethodNode node : jClassNode.methods)
             {
