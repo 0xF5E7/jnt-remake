@@ -22,8 +22,15 @@ import java.util.jar.Manifest;
 @Stability(Level.HIGH)
 public class ClassRenameMutator extends MappingMutator {
 
+    private final Dictionary.Mode mode;
+    private final String          prefix;
+    private final int             length;
+
     public ClassRenameMutator(ObfuscatorContext base, ConfigurationSection config) {
         super(base, config);
+        this.mode   = Dictionary.Mode.of(config == null ? null : config.getString("dictionary", "random"));
+        this.prefix = config == null ? "" : config.getString("prefix", "");
+        this.length = config == null ? 2  : config.getInt("length", 2);
     }
 
     @Override
@@ -36,10 +43,7 @@ public class ClassRenameMutator extends MappingMutator {
         for (JClassNode classNode : classesList) {
             if (classNode.isExempt()) continue;
 
-            String newName;
-            do {
-                newName = config.getString("prefix", "") + Dictionary.gen(2, Purpose.CLASS);
-            } while (mapping.containsValue(newName));
+            String newName = Dictionary.gen(length, Purpose.CLASS, mode, prefix);
 
             String oldName = classNode.name;
 
