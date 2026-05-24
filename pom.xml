@@ -207,6 +207,18 @@
                     <compilerArgs>
                         <arg>--enable-preview</arg>
                     </compilerArgs>
+                    <!-- Wire Lombok's annotation processor so @Getter/@Setter
+                         generate methods before javac resolves symbols.
+                         Without this block Lombok is on the compile classpath
+                         but its APT processor never runs, causing every
+                         @Getter/@Setter-generated method to be "not found". -->
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>1.18.46</version>
+                        </path>
+                    </annotationProcessorPaths>
                 </configuration>
             </plugin>
             <plugin>
