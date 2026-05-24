@@ -46,9 +46,11 @@ public final class DecryptionMethod implements Opcodes
     public final FieldNode cacheField;
     public boolean needsCryptoClass;
     public final int initXorKey;
+    public final String libPath;
 
-    public DecryptionMethod(final JClassNode parent)
+    public DecryptionMethod(final JClassNode parent, final String libPath)
     {
+        this.libPath = libPath;
         this.parent = parent;
 
         // field init
@@ -115,7 +117,7 @@ public final class DecryptionMethod implements Opcodes
         return switch(ThreadLocalRandom.current().nextInt(4))
         {
             case 0, 1, 2 -> new IterativeXorCodePiece(arguments); // give this a higher chance
-            case 3 -> new AesCodePiece(arguments);
+            case 3 -> new AesCodePiece(arguments, libPath);
             default -> throw new IllegalStateException("Unexpected value while making code");
         };
     }
@@ -185,19 +187,9 @@ public final class DecryptionMethod implements Opcodes
 
         methodNode.instructions.add(new InsnNode(SWAP));
         methodNode.instructions.add(new InsnNode(POP)); // yeah we don't need the idx used for making the cache here lul
-
-        // cache debug lole
-/*
-        methodNode.instructions.add(new FieldInsnNode(GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;"));
-        methodNode.instructions.add(new LdcInsnNode("cached!!!"));
-        methodNode.instructions.add(new MethodInsnNode(INVOKEVIRTUAL, "java/io/PrintStream", "println", "(Ljava/lang/String;)V"));
-*/
         methodNode.instructions.add(returnType.getCachePackingCode());
-
         methodNode.instructions.add(new InsnNode(ARETURN));
-
         methodNode.instructions.add(noCache);
-
         methodNode.instructions.add(new InsnNode(POP)); // cached string -> guaranteed null in this case
 
         // int on stack -> string idx
@@ -206,7 +198,6 @@ public final class DecryptionMethod implements Opcodes
         final int iIdx = byteArrayIdx + 2;   // 1
         // byteArrayIdx                      // 2
         final int lenIdx = byteArrayIdx + 3; // 3
-        // byteArrayIdx                      // 4
         final int jIdx = byteArrayIdx + 4;   // 5
         final int bIdx = byteArrayIdx + 5;   // 6 (bytes field cache)
 
@@ -216,15 +207,11 @@ public final class DecryptionMethod implements Opcodes
         final LabelNode l10 = new LabelNode();
 
         methodNode.instructions.add(new VarInsnNode(ISTORE, idxIdx));
-
         methodNode.instructions.add(BytecodeUtil.makeInteger(0));
         methodNode.instructions.add(new VarInsnNode(ISTORE, iIdx));
-
         methodNode.instructions.add(new FieldInsnNode(GETSTATIC, parent.name, initField.name, initField.desc));
         methodNode.instructions.add(new VarInsnNode(ASTORE, bIdx));
-
         methodNode.instructions.add(l3);
-
         methodNode.instructions.add(new VarInsnNode(ALOAD, bIdx));
         methodNode.instructions.add(new VarInsnNode(ILOAD, iIdx));
         methodNode.instructions.add(new InsnNode(BALOAD));
@@ -240,28 +227,20 @@ public final class DecryptionMethod implements Opcodes
         methodNode.instructions.add(BytecodeUtil.makeInteger(0xFF));
         methodNode.instructions.add(new InsnNode(IAND));
         methodNode.instructions.add(new InsnNode(IOR));
-
         methodNode.instructions.add(BytecodeUtil.makeInteger(initXorKey));
         methodNode.instructions.add(new InsnNode(IXOR));
-
         methodNode.instructions.add(new VarInsnNode(ISTORE, lenIdx));
-
         methodNode.instructions.add(new VarInsnNode(ILOAD, idxIdx));
         methodNode.instructions.add(new JumpInsnNode(IFNE, l6));
-
         methodNode.instructions.add(new VarInsnNode(ILOAD, lenIdx));
         methodNode.instructions.add(new IntInsnNode(NEWARRAY, T_BYTE));
         methodNode.instructions.add(new VarInsnNode(ASTORE, byteArrayIdx));
-
         methodNode.instructions.add(BytecodeUtil.makeInteger(0));
         methodNode.instructions.add(new VarInsnNode(ISTORE, jIdx));
-
         methodNode.instructions.add(l10);
-
         methodNode.instructions.add(new VarInsnNode(ILOAD, jIdx));
         methodNode.instructions.add(new VarInsnNode(ILOAD, lenIdx));
         methodNode.instructions.add(new JumpInsnNode(IF_ICMPGE, l4));
-
         methodNode.instructions.add(new VarInsnNode(ALOAD, byteArrayIdx));
         methodNode.instructions.add(new VarInsnNode(ILOAD, jIdx));
         methodNode.instructions.add(new VarInsnNode(ALOAD, bIdx));
@@ -272,22 +251,17 @@ public final class DecryptionMethod implements Opcodes
         methodNode.instructions.add(new InsnNode(IADD));
         methodNode.instructions.add(new InsnNode(BALOAD));
         methodNode.instructions.add(new InsnNode(BASTORE));
-
         methodNode.instructions.add(new IincInsnNode(jIdx, 1));
         methodNode.instructions.add(new JumpInsnNode(GOTO, l10));
-
         methodNode.instructions.add(l6);
-
         methodNode.instructions.add(new VarInsnNode(ILOAD, iIdx));
         methodNode.instructions.add(new VarInsnNode(ILOAD, lenIdx));
         methodNode.instructions.add(BytecodeUtil.makeInteger(2));
         methodNode.instructions.add(new InsnNode(IADD));
         methodNode.instructions.add(new InsnNode(IADD));
         methodNode.instructions.add(new VarInsnNode(ISTORE, iIdx));
-
         methodNode.instructions.add(new IincInsnNode(idxIdx, -1));
         methodNode.instructions.add(new JumpInsnNode(GOTO, l3));
-
         methodNode.instructions.add(l4);
 
         // end
@@ -301,14 +275,11 @@ public final class DecryptionMethod implements Opcodes
             methodNode.instructions.add(abstractDecryptionMethodCodePiece.getDecryptionCode(byteArrayIdx));
         }
 
-        // stack: integer (cache idx)
         methodNode.instructions.add(new FieldInsnNode(GETSTATIC, parent.name, cacheField.name, cacheField.desc));
         methodNode.instructions.add(new InsnNode(SWAP));
         methodNode.instructions.add(new VarInsnNode(ALOAD, byteArrayIdx));
         methodNode.instructions.add(new InsnNode(AASTORE));
-
         methodNode.instructions.add(returnType.getPackingCode());
-
         methodNode.instructions.add(new InsnNode(ARETURN));
 
         return methodNode;
@@ -320,9 +291,6 @@ public final class DecryptionMethod implements Opcodes
         {
             Dictionary.addUsed(method.name, Purpose.METHOD);
         }
-
-        // length=1 with 26-char alphabet exhausts after ~26 names — hangs on any real JAR.
-        // Use length=8 with ALPHA mode (62-char alphabet = 62^8 > 200 billion unique names).
         return Dictionary.gen(8, Purpose.METHOD, Dictionary.Mode.ALPHA, "");
     }
 
@@ -406,15 +374,12 @@ public final class DecryptionMethod implements Opcodes
         {
             Dictionary.addUsed(field.name, Purpose.FIELD);
         }
-
-        // Same fix: use length=8 ALPHA to avoid exhausting the 26-char namespace.
         return Dictionary.gen(8, Purpose.FIELD, Dictionary.Mode.ALPHA, "");
     }
 
     public byte[] encrypt(Map.Entry<String, Pair<AbstractDecryptionMethodArgument, Object>[]> entry)
     {
         byte[] bytes = entry.getKey().getBytes(StandardCharsets.UTF_8);
-
         for (AbstractDecryptionMethodCodePiece codePiece : code.reversed())
         {
             bytes = codePiece.encrypt(entry.getValue(), bytes, methodName, parent.name.replace("/", "."));
