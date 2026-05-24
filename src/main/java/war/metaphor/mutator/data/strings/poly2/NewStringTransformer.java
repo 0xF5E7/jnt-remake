@@ -19,6 +19,7 @@ import war.metaphor.util.Pair;
 import war.metaphor.util.asm.BytecodeUtil;
 
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.Set;
 
@@ -56,18 +57,26 @@ public final class NewStringTransformer extends Mutator
             for (final MethodNode node : jClassNode.methods)
             {
                 if (jClassNode.isExempt(node)) continue;
+
+                // Snapshot all LDC string nodes first — modifying InsnList
+                // while iterating it corrupts the iterator, causing an
+                // infinite loop or ConcurrentModificationException.
+                final ArrayList<LdcInsnNode> targets = new ArrayList<>();
                 for (final AbstractInsnNode instruction : node.instructions)
                 {
-                    if (instruction instanceof LdcInsnNode ldc)
+                    if (instruction instanceof LdcInsnNode ldc && ldc.cst instanceof String)
                     {
-                        if (ldc.cst instanceof String str)
-                        {
-                            added = true;
-                            final InsnList insns = makeCall(jClassNode, method, methodNode, str);
-                            node.instructions.insertBefore(instruction, insns);
-                            node.instructions.remove(instruction);
-                        }
+                        targets.add(ldc);
                     }
+                }
+
+                for (final LdcInsnNode ldc : targets)
+                {
+                    final String str = (String) ldc.cst;
+                    added = true;
+                    final InsnList insns = makeCall(jClassNode, method, methodNode, str);
+                    node.instructions.insertBefore(ldc, insns);
+                    node.instructions.remove(ldc);
                 }
             }
 
