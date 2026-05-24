@@ -56,7 +56,7 @@ public class Initializer implements Opcodes
         code.add(new LdcInsnNode(encoded));
         code.add(new FieldInsnNode(GETSTATIC, "java/nio/charset/StandardCharsets", "UTF_8", "Ljava/nio/charset/Charset;"));
         code.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/String", "getBytes", "(Ljava/nio/charset/Charset;)[B"));
-        code.add(new MethodInsnNode(INVOKESTATIC, "war/jnt/base64/Base64", "decode", "([B)[B"));
+        code.add(new MethodInsnNode(INVOKESTATIC, parent.libPath + "/base64/Base64", "decode", "([B)[B"));
         code.add(new FieldInsnNode(PUTSTATIC, parent.parent.name, parent.initField.name, parent.initField.desc));
 
         code.add(BytecodeUtil.makeInteger(parent.cachedStrings.size()));
