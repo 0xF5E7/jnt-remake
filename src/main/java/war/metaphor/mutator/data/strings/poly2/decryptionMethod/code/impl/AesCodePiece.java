@@ -18,12 +18,14 @@ public final class AesCodePiece extends AbstractDecryptionMethodCodePiece
 {
     private final AbstractDecryptionMethodArgument keyArg;
     private final int keyIdx;
+    private final String libPath;
 
-    public AesCodePiece(final ArrayList<AbstractDecryptionMethodArgument> arguments)
+    public AesCodePiece(final ArrayList<AbstractDecryptionMethodArgument> arguments, final String libPath)
     {
         final int keyIdx = ThreadLocalRandom.current().nextInt(arguments.size());
         this.keyArg = arguments.get(keyIdx);
         this.keyIdx = keyIdx;
+        this.libPath = libPath;
     }
 
     @Override
@@ -49,7 +51,6 @@ public final class AesCodePiece extends AbstractDecryptionMethodCodePiece
         }
 
         final ArrayList<InsnList> inits = new ArrayList<>();
-
         final InsnList randomInit = new InsnList();
 
         randomInit.add(new TypeInsnNode(NEW, "java/util/Random"));
@@ -58,19 +59,14 @@ public final class AesCodePiece extends AbstractDecryptionMethodCodePiece
         randomInit.add(new InsnNode(I2L));
         randomInit.add(new MethodInsnNode(INVOKESPECIAL, "java/util/Random", "<init>", "(J)V"));
         randomInit.add(new VarInsnNode(ASTORE, randomIdx));
-
         final InsnList keyArrInit = new InsnList();
-
         keyArrInit.add(BytecodeUtil.makeInteger(16));
         keyArrInit.add(new IntInsnNode(NEWARRAY, T_BYTE));
         keyArrInit.add(new VarInsnNode(ASTORE, keyArrIdx));
-
         final InsnList ivArrInit = new InsnList();
-
         ivArrInit.add(BytecodeUtil.makeInteger(16));
         ivArrInit.add(new IntInsnNode(NEWARRAY, T_BYTE));
         ivArrInit.add(new VarInsnNode(ASTORE, ivArrIdx));
-
         inits.add(randomInit);
         inits.add(keyArrInit);
         inits.add(ivArrInit);
@@ -82,21 +78,17 @@ public final class AesCodePiece extends AbstractDecryptionMethodCodePiece
             list.add(init);
         }
 
-
         list.add(new VarInsnNode(ALOAD, randomIdx));
         list.add(new VarInsnNode(ALOAD, keyArrIdx));
         list.add(new MethodInsnNode(INVOKEVIRTUAL, "java/util/Random", "nextBytes", "([B)V"));
-
         list.add(new VarInsnNode(ALOAD, randomIdx));
         list.add(new VarInsnNode(ALOAD, ivArrIdx));
         list.add(new MethodInsnNode(INVOKEVIRTUAL, "java/util/Random", "nextBytes", "([B)V"));
-
         list.add(new VarInsnNode(ALOAD, byteArrayIdx));
         list.add(new VarInsnNode(ALOAD, keyArrIdx));
         list.add(new VarInsnNode(ALOAD, ivArrIdx));
-        list.add(new MethodInsnNode(INVOKESTATIC, "war/jnt/crypto/Crypto", "decrypt", "([B[B[B)[B"));
+        list.add(new MethodInsnNode(INVOKESTATIC, libPath + "/crypto/Crypto", "decrypt", "([B[B[B)[B"));
         list.add(new VarInsnNode(ASTORE, byteArrayIdx));
-
         return list;
     }
 
