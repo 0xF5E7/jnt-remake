@@ -22,8 +22,15 @@ import java.util.Set;
 @Stability(Level.HIGH)
 public class MethodRenameMutator extends MappingMutator {
 
+    private final Dictionary.Mode mode;
+    private final String          prefix;
+    private final int             length;
+
     public MethodRenameMutator(ObfuscatorContext base, ConfigurationSection config) {
         super(base, config);
+        this.mode   = Dictionary.Mode.of(config == null ? null : config.getString("dictionary", "random"));
+        this.prefix = config == null ? "" : config.getString("prefix", "");
+        this.length = config == null ? 1  : config.getInt("length", 1);
     }
 
     @Override
@@ -34,7 +41,6 @@ public class MethodRenameMutator extends MappingMutator {
             if (classNode.isExempt()) continue;
 
             Set<JClassNode> classTree = Hierarchy.INSTANCE.getClassHierarchy(classNode);
-
             classTree.add(classNode);
 
             for (MethodNode method : classNode.methods) {
@@ -50,11 +56,9 @@ public class MethodRenameMutator extends MappingMutator {
                 }
 
                 ClassMethod self = ClassMethod.of(classNode, method);
-
                 Set<ClassMethod> methodTree = Hierarchy.INSTANCE.getMethodHierarchy(self);
 
-                if (!canRenameMethod(methodTree))
-                    continue;
+                if (!canRenameMethod(methodTree)) continue;
 
                 String newName = null;
 
@@ -66,7 +70,7 @@ public class MethodRenameMutator extends MappingMutator {
                 }
 
                 if (newName == null) {
-                    newName = Dictionary.gen(1, Purpose.METHOD);
+                    newName = Dictionary.gen(length, Purpose.METHOD, mode, prefix);
                 }
 
                 for (JClassNode node : classTree) {
