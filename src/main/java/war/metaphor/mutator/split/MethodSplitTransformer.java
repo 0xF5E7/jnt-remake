@@ -1,4 +1,4 @@
-package war.metaphor.mutator.misc;
+package war.metaphor.mutator.split;
 
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.*;
