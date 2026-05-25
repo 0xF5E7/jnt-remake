@@ -14,17 +14,6 @@ import war.metaphor.util.Purpose;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * ReferenceMutator — hides INVOKEVIRTUAL / INVOKESTATIC / INVOKEINTERFACE
- * calls behind invokedynamic + a per-class bootstrap method.
- *
- * This is a ground-up rewrite of the original, which called
- * CallSite.makeSite() — a package-private JDK internal method that has been
- * blocked by the module system since JVM 16.  This version uses only public
- * java.lang.invoke APIs and works on JVM 8–21+.
- *
- * Ported from ArkObf's ReferenceTransformer, adapted to JNT's mutator API.
- */
 @Stability(Level.HIGH)
 public class ReferenceMutator extends Mutator {
 
@@ -72,7 +61,9 @@ public class ReferenceMutator extends Mutator {
             "Ljava/lang/Object;Ljava/lang/Object;%s)Ljava/lang/Object;",
             extraDesc);
 
-        String decodeDesc = String.format("(Ljava/lang/String;B%s)[B", extraDesc);
+        // Use I (int) not B (byte) for the key param: BSM pushes an int constant
+        // (LDC), and the JVM verifier rejects a byte param receiving an int on the stack.
+        String decodeDesc = String.format("(Ljava/lang/String;I%s)[B", extraDesc);
 
         Handle bsmHandle = new Handle(
             Opcodes.H_INVOKESTATIC, classNode.name, bsmName, bsmDesc, false);
@@ -250,7 +241,10 @@ public class ReferenceMutator extends Mutator {
         // ── decode owner class name ──────────────────────────────────────────
         mv.visitVarInsn(Opcodes.ALOAD, 4);             // encodedOwner
         mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/String");
-        mv.visitIntInsn(Opcodes.BIPUSH, encKey & 0xFF);
+        // BIPUSH is signed and only safe for -128..127. encKey is a byte (0..255 after &0xFF).
+        // Values >127 would silently sign-extend and corrupt the XOR key at runtime.
+        // Use visitLdcInsn(int) which the ASM assembler lowers to the right opcode automatically.
+        mv.visitLdcInsn(encKey & 0xFF);
         // push extra nulls if decodeDesc has extra params
         for (int i = 0; i < extraCount; i++) mv.visitInsn(Opcodes.ACONST_NULL);
         mv.visitMethodInsn(Opcodes.INVOKESTATIC, classNode.name,
@@ -265,7 +259,7 @@ public class ReferenceMutator extends Mutator {
         // ── decode method name ───────────────────────────────────────────────
         mv.visitVarInsn(Opcodes.ALOAD, 5);             // encodedMethod
         mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/String");
-        mv.visitIntInsn(Opcodes.BIPUSH, encKey & 0xFF);
+        mv.visitLdcInsn(encKey & 0xFF);
         for (int i = 0; i < extraCount; i++) mv.visitInsn(Opcodes.ACONST_NULL);
         mv.visitMethodInsn(Opcodes.INVOKESTATIC, classNode.name,
             decodeName, decodeDesc, false);
