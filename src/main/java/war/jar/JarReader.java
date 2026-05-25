@@ -60,6 +60,11 @@ public class JarReader {
         logger.logln(Level.INFO, Origin.INTAKE, String.format("Loaded libraries (%s)",
                 new Ansi().c(WHITE).s(String.format("%dms", System.currentTimeMillis() - start))));
 
+//        List<String> mappingFiles = config.getStringList("mappings");
+//        if (mappingFiles != null && !mappingFiles.isEmpty()) {
+//            applyMappings(mappingFiles, logger);
+//        }
+
         classes.parallelStream().forEach(classNode -> {
             String sourceFile = classNode.sourceFile;
             if (sourceFile != null && sourceFile.startsWith("pass::jnt:")) {
@@ -136,6 +141,40 @@ public class JarReader {
         if (!input.exists() || !input.isFile()) throw new RuntimeException("Invalid input file");
         loadJarFile(input, false);
     }
+
+//    private void applyMappings(List<String> mappingFiles, Logger logger) {
+//        logger.logln(Level.INFO, Origin.METAPHOR, String.format("Loading mappings from %s", new Ansi().c(WHITE).s(mappingFiles)));
+//        Gson gson = new Gson();
+//
+//        for (String mappingPath : mappingFiles) {
+//            File mappingFile = new File(mappingPath);
+//            if (!mappingFile.exists()) continue;
+//
+//            try (FileReader fr = new FileReader(mappingFile);
+//                 JsonReader reader = new JsonReader(fr)) {
+//
+//                JsonObject root = gson.fromJson(reader, JsonObject.class);
+//                if (!root.has("classes")) continue;
+//
+//                JsonObject classesObj = root.getAsJsonObject("classes");
+//
+//                for (Map.Entry<String, JsonElement> entry : classesObj.entrySet()) {
+//                    String originalName = entry.getKey();
+//                    String mappedName = entry.getValue().getAsString();
+//
+//                    JClassNode classNode = classMap.get(mappedName);
+//
+//                    if (classNode != null) {
+//                        classNode.setRealName(originalName);
+//                    } else {
+//                        //TODO: IDK, this was for grunt hsit
+//                    }
+//                }
+//            } catch (IOException e) {
+//                e.printStackTrace();
+//            }
+//        }
+//    }
 
     public void clear() {
         classes.clear();
