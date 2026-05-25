@@ -13,6 +13,10 @@ import java.util.ArrayList;
 import java.util.Map;
 import java.lang.Math;
 
+/**
+ * omg wow not simple initializer :flushed:
+ * @author Jan
+ */
 public class Initializer implements Opcodes
 {
     public final InsnList code;
@@ -30,6 +34,7 @@ public class Initializer implements Opcodes
         int targetLength = 0;
         for (final byte[] sBytes : encrypted)
         {
+            // string length + length byte high + length byte low
             targetLength += sBytes.length + 2;
         }
 
@@ -48,6 +53,11 @@ public class Initializer implements Opcodes
         }
 
         final String encoded = new String(Base64.encode(bytes));
+
+        // A single LDC constant pool entry is limited to 65535 UTF-8 bytes.
+        // Large classes with many strings produce a base64 blob that exceeds this.
+        // Split the string into <=32767-char chunks and reassemble at runtime with
+        // StringBuilder so no individual constant pool entry is oversized.
         final int CHUNK = 32767;
         if (encoded.length() <= CHUNK) {
             // Fast path: fits in one constant.
@@ -72,6 +82,7 @@ public class Initializer implements Opcodes
         code.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/String", "getBytes", "(Ljava/nio/charset/Charset;)[B"));
         code.add(new MethodInsnNode(INVOKESTATIC, parent.libPath + "/base64/Base64", "decode", "([B)[B"));
         code.add(new FieldInsnNode(PUTSTATIC, parent.parent.name, parent.initField.name, parent.initField.desc));
+
         code.add(BytecodeUtil.makeInteger(parent.cachedStrings.size()));
         code.add(new TypeInsnNode(ANEWARRAY, "[B"));
         code.add(new FieldInsnNode(PUTSTATIC, parent.parent.name, parent.cacheField.name, parent.cacheField.desc));
