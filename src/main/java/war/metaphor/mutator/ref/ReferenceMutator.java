@@ -87,6 +87,15 @@ public class ReferenceMutator extends Mutator {
                 }
             }
 
+            if (!targets.isEmpty()) {
+                // Invalidate frame data so ASM recomputes maxStack/maxLocals
+                // after we inject new instructions.  Without this, COMPUTE_FRAMES
+                // sees stale values and throws, causing the fallback to original
+                // (unobfuscated) bytes.
+                method.maxLocals = 0;
+                method.maxStack  = 0;
+            }
+
             for (MethodInsnNode m : targets) {
                 int op = m.getOpcode();
 
@@ -151,6 +160,9 @@ public class ReferenceMutator extends Mutator {
         init.add(new LdcInsnNode(184)); // INVOKESTATIC opcode constant (comparison baseline)
         init.add(new FieldInsnNode(Opcodes.PUTSTATIC, classNode.name, cmpFieldName, "I"));
         clinit.instructions.insert(init);
+        // Invalidate so ASM recomputes stack depth after our new instructions.
+        clinit.maxLocals = 0;
+        clinit.maxStack  = 0;
 
         // ── inject the base64 decode helper ─────────────────────────────────
         injectDecodeMethod(classNode, decodeName, decodeDesc, b64Table, extraCount);
@@ -376,7 +388,10 @@ public class ReferenceMutator extends Mutator {
         // stack: [ ConstantCallSite ]
         mv.visitInsn(Opcodes.ARETURN);
 
-        mv.visitMaxs(6, vDesc + 1);
+        // Use 0,0 — ASM's COMPUTE_FRAMES/COMPUTE_MAXS will recalculate
+        // the correct values.  A hardcoded guess is wrong when extraCount
+        // varies or when later passes add more locals.
+        mv.visitMaxs(0, 0);
         mv.visitEnd();
     }
 
@@ -576,7 +591,8 @@ public class ReferenceMutator extends Mutator {
         mv.visitVarInsn(Opcodes.ALOAD, 4);
         mv.visitInsn(Opcodes.ARETURN);
         mv.visitLabel(l25);
-        mv.visitMaxs(6, 6 + extraCount);
+        // Let ASM recompute — hardcoded (6, 6+extraCount) is often wrong.
+        mv.visitMaxs(0, 0);
         mv.visitEnd();
     }
 
