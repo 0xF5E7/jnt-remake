@@ -106,6 +106,7 @@ public class IntegerTableTransformer extends Mutator {
         byte[] bytes = baos.toByteArray();
         return Base64.getEncoder().encodeToString(bytes);
     }
+    private static final int LDC_CHUNK = 32767;
 
     private InsnList makeDec(JClassNode jClassNode, String fieldName, String constant) {
         MethodNode mn = new MethodNode();
@@ -113,7 +114,21 @@ public class IntegerTableTransformer extends Mutator {
 
         Label label0 = new Label();
         mn.visitLabel(label0);
-        mn.visitLdcInsn(constant);
+        if (constant.length() <= LDC_CHUNK) {
+            mn.visitLdcInsn(constant);
+        } else {
+            mn.visitTypeInsn(Opcodes.NEW, "java/lang/StringBuilder");
+            mn.visitInsn(Opcodes.DUP);
+            mn.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/lang/StringBuilder", "<init>", "()V", false);
+            for (int _start = 0; _start < constant.length(); _start += LDC_CHUNK) {
+                String _chunk = constant.substring(_start, Math.min(_start + LDC_CHUNK, constant.length()));
+                mn.visitLdcInsn(_chunk);
+                mn.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/StringBuilder", "append",
+                        "(Ljava/lang/String;)Ljava/lang/StringBuilder;", false);
+            }
+            mn.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/StringBuilder", "toString",
+                    "()Ljava/lang/String;", false);
+        }
         mn.visitVarInsn(Opcodes.ASTORE, 0);
         Label label1 = new Label();
         mn.visitLabel(label1);
