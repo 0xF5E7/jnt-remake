@@ -73,13 +73,6 @@ public class MethodSplittingMutator extends Mutator {
                 if (method.name.equals("<init>") || method.name.equals("<clinit>")) continue;
                 if (method.instructions == null || method.instructions.size() < minInsn) continue;
                 if (method.tryCatchBlocks != null && !method.tryCatchBlocks.isEmpty()) continue;
-
-                // FIX: skip methods containing any jump/switch instructions.
-                // The clone-without-label-remapping approach used in splitMethod cannot
-                // safely handle jumps — labels in cloned segments would still point into
-                // the original method's InsnList, causing VerifyError at runtime.
-                // flow.flattening introduces its own TABLESWITCH dispatchers, so virtually
-                // all flattened methods are caught here. Only genuinely linear methods proceed.
                 if (hasAnyJump(method)) continue;
 
                 // FIX: guard against a null first instruction (can happen if a prior mutator
@@ -144,7 +137,16 @@ public class MethodSplittingMutator extends Mutator {
 
         if (real.size() < minInsn) return null;
 
-        int segSize = real.size() / parts;
+        // Compute the required number of parts dynamically based on method bytecode size.
+        // A method with leeway < 0 is already > 64KB. We need enough parts so that
+        // each segment is estimated to be < 50000 bytes (14KB headroom for transforms).
+        // At minimum use the configured `parts`; scale up if the method is very large.
+        int methodBytes = 65535 - BytecodeUtil.leeway(method);
+        int requiredParts = Math.max(parts, (int) Math.ceil(methodBytes / 45000.0));
+        // Cap at 16 parts to avoid pathological splitting.
+        int effectiveParts = Math.min(requiredParts, 16);
+
+        int segSize = real.size() / effectiveParts;
         if (segSize < 5) return null;   // too small to be worth splitting
 
         List<MethodNode> created = new ArrayList<>();
@@ -163,7 +165,7 @@ public class MethodSplittingMutator extends Mutator {
         int realCount = 0;
         for (AbstractInsnNode n : all) {
             if (n.getOpcode() < 0) continue;
-            if (realCount % segSize == 0 && realCount > 0 && segmentEntryPoints.size() < parts - 1) {
+            if (realCount % segSize == 0 && realCount > 0 && segmentEntryPoints.size() < effectiveParts - 1) {
                 segmentEntryPoints.add(n);
             }
             realCount++;
