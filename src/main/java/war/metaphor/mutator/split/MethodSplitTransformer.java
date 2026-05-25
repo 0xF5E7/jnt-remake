@@ -46,13 +46,13 @@ import java.util.*;
  *     chance: 50            # % of eligible methods to split
  */
 @Stability(Level.MEDIUM)
-public class MethodSplittingMutator extends Mutator {
+public class MethodSplitTransformer extends Mutator {
 
     private final int minInsn;
     private final int parts;
     private final int chance;
 
-    public MethodSplittingMutator(ObfuscatorContext base, ConfigurationSection config) {
+    public MethodSplitTransformer(ObfuscatorContext base, ConfigurationSection config) {
         super(base, config);
         this.minInsn = config == null ? 40 : config.getInt("min-insn", 40);
         this.parts   = Math.max(2, Math.min(4, config == null ? 2 : config.getInt("parts", 2)));
@@ -74,13 +74,8 @@ public class MethodSplittingMutator extends Mutator {
                 if (method.instructions == null || method.instructions.size() < minInsn) continue;
                 if (method.tryCatchBlocks != null && !method.tryCatchBlocks.isEmpty()) continue;
                 if (hasAnyJump(method)) continue;
-
-                // FIX: guard against a null first instruction (can happen if a prior mutator
-                // left the method in a partially-cleared state).
                 if (method.instructions.getFirst() == null) continue;
-
                 if (rand.nextInt(100) >= chance) continue;
-
                 List<MethodNode> splitParts = splitMethod(classNode, method);
                 if (splitParts != null) {
                     toAdd.addAll(splitParts);
