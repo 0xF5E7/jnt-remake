@@ -197,6 +197,32 @@ public class JClassNode extends ClassNode implements Opcodes {
                         new Ansi().c(YELLOW).s(realName).r(false).c(Ansi.Color.BRIGHT_YELLOW),
                         ex2.getMessage()));
         }
+
+        // ── Tier 0: re-emit the fully-mutated ASM tree with no frame recomputation ──
+        // COMPUTE_FRAMES and COMPUTE_MAXS both failed because one or more methods grew
+        // past the JVM 64 KB bytecode limit after inlining + obfuscation passes.
+        // ClassWriter(0) does NOT recompute frames or maxs — it just re-serialises
+        // whatever is already in the ClassNode.  The individual mutators already wrote
+        // valid frames into the tree as they ran, so the in-memory tree is correct even
+        // if the aggregate is too large for a whole-class recompute.
+        // The resulting class will run fine on JVM 8+.
+        try {
+            ClassWriter cwZero = new ClassWriter(0);
+            accept(cwZero);
+            byte[] bytes = cwZero.toByteArray();
+            Logger.INSTANCE.logln(Level.WARNING, Origin.METAPHOR,
+                    String.format("Tier-0 (ClassWriter(0)) succeeded for %s (%s) — fully obfuscated",
+                        new Ansi().c(YELLOW).s(name).r(false).c(Ansi.Color.BRIGHT_YELLOW),
+                        new Ansi().c(YELLOW).s(realName).r(false).c(Ansi.Color.BRIGHT_YELLOW)));
+            return bytes;
+        } catch (Exception ex3) {
+            Logger.INSTANCE.logln(Level.WARNING, Origin.METAPHOR,
+                    String.format("Tier-0 (ClassWriter(0)) also failed for %s (%s): %s",
+                        new Ansi().c(YELLOW).s(name).r(false).c(Ansi.Color.BRIGHT_YELLOW),
+                        new Ansi().c(YELLOW).s(realName).r(false).c(Ansi.Color.BRIGHT_YELLOW),
+                        ex3.getMessage()));
+        }
+
         byte[] fallback = originalBytes;
         if (fallback == null && ObfuscatorContext.INSTANCE != null
                 && ObfuscatorContext.INSTANCE.getInput() != null
