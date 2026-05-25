@@ -61,9 +61,13 @@ public class ClassRenameMutator extends MappingMutator {
         if (manifest != null) {
             Attributes attrs = manifest.getMainAttributes();
             attrs.replaceAll((_, val) -> {
-                if (val instanceof String) {
-                    String normalized = ((String) val).replace('.', '/');
-                    return mapping.getOrDefault(normalized, (String) val);
+                if (val instanceof String strVal) {
+                    String slashForm = strVal.replace('.', '/');
+                    String renamed   = mapping.get(slashForm);
+                    if (renamed != null) {
+                        // Convert the new slash-form name back to dot-notation for the manifest.
+                        return renamed.replace('/', '.');
+                    }
                 }
                 return val;
             });
