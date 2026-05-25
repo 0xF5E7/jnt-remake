@@ -75,7 +75,7 @@ public class Metaphor {
             
                 .mutator("flow.break", BlockBreakMutator.class)
                 .mutator("flow.flattening", ControlFlowFlatteningMutator.class)
-                .mutator("method-split",    MethodSplittingTransformer.class)
+                .mutator("method-split",    MethodSplitTransformer.class)
                 .mutator("flow.shuffle", InstructionShuffleMutator.class)
                 .mutator("flow.switch", SwitchMutator.class)
                 .mutator("flow.traps", TrapEdgeMutator.class)
@@ -100,7 +100,6 @@ public class Metaphor {
                 .mutator("dot-graph", DotExportMutator.class)
 
                 .mutator("indy-rewriter", IndyTransformer.class)
-                .mutator("class-split", ClassSplittingTransformer.class)
 
                 .mutator("splash-screen", SplashScreenMutator.class)
 
