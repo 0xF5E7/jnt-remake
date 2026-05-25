@@ -50,6 +50,7 @@ public class IndyTransformer extends Mutator {
                     if (insn instanceof InvokeDynamicInsnNode) { hasIndy = true; break; }
                 }
                 if (!hasIndy) continue;
+                if (BytecodeUtil.leeway(method) < 15_000) continue;
 
                 BytecodeUtil.computeMaxLocals(method);
 
