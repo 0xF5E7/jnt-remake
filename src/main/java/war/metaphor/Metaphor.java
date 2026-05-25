@@ -63,7 +63,7 @@ public class Metaphor {
             
                 .mutator("anti-debug",  AntiDebugTransformer.class) 
                 .mutator("anti-tamper", AntiTamperTransformer.class)
-                .mutator("anti-tamper", AntiDumpTransformer.class)
+                .mutator("anti-dump", AntiDumpTransformer.class)
 
                 .mutator("string.poly", StringTransformer.class)
                 .mutator("string.poly2", NewStringTransformer.class)
