@@ -57,7 +57,6 @@ public class ControlFlowFlatteningMutator extends Mutator {
 
         grouped.forEach(blocks -> blocks.removeIf(Block::isCarrying));
         grouped.forEach(blocks -> blocks.removeIf(block -> block == graph.getStartBlock()));
-
         grouped.removeIf(blocks -> blocks.size() <= 1);
 
         if (grouped.isEmpty()) return;
@@ -73,9 +72,8 @@ public class ControlFlowFlatteningMutator extends Mutator {
         for (List<Block> group : grouped) {
 
             LookupSwitchInsnNode lookupSwitch;
-
-            Map<Block, LabelNode> labels = new HashMap<>();
-            Map<Block, Integer> keys = new HashMap<>();
+            Map<Block, LabelNode> labels = new LinkedHashMap<>();
+            Map<Block, Integer>   keys   = new LinkedHashMap<>();
 
             for (Block block : group) {
                 keys.put(block, nextIntUnique(keys.values()));
@@ -83,8 +81,15 @@ public class ControlFlowFlatteningMutator extends Mutator {
             }
 
             LabelNode start = new LabelNode();
+            int[]       keyArr   = new int[group.size()];
+            LabelNode[] labelArr = new LabelNode[group.size()];
+            for (int _i = 0; _i < group.size(); _i++) {
+                Block _b  = group.get(_i);
+                keyArr[_i]   = keys.get(_b);
+                labelArr[_i] = labels.get(_b);
+            }
 
-            lookupSwitch = new LookupSwitchInsnNode(labels.values().toArray(new LabelNode[0])[0], keys.values().stream().mapToInt(i -> i).toArray(), labels.values().toArray(new LabelNode[0]));
+            lookupSwitch = new LookupSwitchInsnNode(labelArr[0], keyArr, labelArr);
 
             BytecodeUtil.fixLookupSwitch(lookupSwitch);
 
@@ -96,13 +101,7 @@ public class ControlFlowFlatteningMutator extends Mutator {
             for (Block block : group) {
 
                 InsnList blockList = new InsnList();
-
                 InsnList sub = new InsnList();
-
-//                if (block.getAllAccessors().size() == 1 && group.contains(block.getAllAccessors().iterator().next())) {
-//                    sub.add(BytecodeUtil.generateSeeded(var, keys.get(block), keys.get(block.getAllAccessors().iterator().next())));
-//                } else {
-
                 sub.add(BytecodeUtil.generateInteger(keys.get(block)));
 //                }
 
