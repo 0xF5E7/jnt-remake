@@ -43,6 +43,11 @@ public class JClassNode extends ClassNode implements Opcodes {
     @Setter
     private String liftedInitializer;
 
+    /** Original bytecode stored at load time; used as a last-resort fallback
+     *  when obfuscation inflates the class past JVM limits (Method too large,
+     *  UTF8 string too large). Avoids silently dropping classes from the JAR. */
+    private byte[] originalBytes;
+
     public JClassNode() {
         this(false);
     }
@@ -158,8 +163,14 @@ public class JClassNode extends ClassNode implements Opcodes {
         exemptSelf = false;
     }
 
+    /** Store original bytecode before any mutation for use as a last-resort fallback. */
+    public void storeOriginalBytes(byte[] bytes) {
+        this.originalBytes = bytes;
+    }
+
     public byte[] compute() {
         JClassWriter writer;
+        // Tier 1: full frame recomputation (preferred).
         try {
             cacheSymbolTable();
             writer = new JClassWriter(ClassWriter.COMPUTE_FRAMES, symbolTable);
@@ -168,14 +179,34 @@ public class JClassNode extends ClassNode implements Opcodes {
             return writer.toByteArray();
         } catch (Exception ex) {
             Logger.INSTANCE.logln(Level.WARNING, Origin.METAPHOR,
-                    String.format("Could not compute class %s -> %s (%s)", ex.getMessage(), new Ansi().c(YELLOW).s(name).r(false).c(Ansi.Color.BRIGHT_YELLOW),
+                    String.format("Could not compute class %s -> %s (%s)", ex.getMessage(),
+                        new Ansi().c(YELLOW).s(name).r(false).c(Ansi.Color.BRIGHT_YELLOW),
                         new Ansi().c(YELLOW).s(realName).r(false).c(Ansi.Color.BRIGHT_YELLOW)));
+        }
+        // Tier 2: recompute maxs only (skips frame verification, handles most frame issues).
+        try {
             resetSymbolTable();
             writer = new JClassWriter(ClassWriter.COMPUTE_MAXS, symbolTable);
             symbolTable.classWriter = writer;
             accept(writer);
             return writer.toByteArray();
+        } catch (Exception ex2) {
+            Logger.INSTANCE.logln(Level.WARNING, Origin.METAPHOR,
+                    String.format("COMPUTE_MAXS also failed for %s (%s): %s",
+                        new Ansi().c(YELLOW).s(name).r(false).c(Ansi.Color.BRIGHT_YELLOW),
+                        new Ansi().c(YELLOW).s(realName).r(false).c(Ansi.Color.BRIGHT_YELLOW),
+                        ex2.getMessage()));
         }
+        // Tier 3: fall back to original unobfuscated bytes so the class is never
+        // silently dropped from the JAR (which causes ClassNotFoundException at runtime).
+        if (originalBytes != null) {
+            Logger.INSTANCE.logln(Level.WARNING, Origin.METAPHOR,
+                    String.format("Falling back to original bytes for %s (%s) — class will be unobfuscated",
+                        new Ansi().c(YELLOW).s(name).r(false).c(Ansi.Color.BRIGHT_YELLOW),
+                        new Ansi().c(YELLOW).s(realName).r(false).c(Ansi.Color.BRIGHT_YELLOW)));
+            return originalBytes;
+        }
+        throw new RuntimeException("All compute() strategies failed for class " + name + " and no original bytes were stored");
     }
 
     public MethodNode getStaticInit() {
