@@ -49,6 +49,10 @@ public class JClassNode extends ClassNode implements Opcodes {
 
     @Setter
     private String liftedInitializer;
+
+    /** Original bytecode stored at load time; used as a last-resort fallback
+     *  when obfuscation inflates the class past JVM limits (Method too large,
+     *  UTF8 string too large). Avoids silently dropping classes from the JAR. */
     private byte[] originalBytes;
 
     public JClassNode() {
@@ -233,6 +237,23 @@ public class JClassNode extends ClassNode implements Opcodes {
             } else {
                 renameMap = java.util.Collections.emptyMap();
             }
+            // Apply the class rename mapping to all references in the bytecode, then
+            // re-emit with valid stack map frames so Java 7+ verifier accepts the class.
+            //
+            // Tier A: SKIP_FRAMES read + COMPUTE_FRAMES write.
+            //   SKIP_FRAMES on the reader avoids "Method too large" during ClassReader
+            //   parsing (EXPAND_FRAMES would do that).  COMPUTE_FRAMES on the writer
+            //   regenerates correct StackMapTable attributes from scratch — required for
+            //   any class whose version is >= 51 (Java 7) to pass the JVM verifier.
+            //
+            // Tier B: If COMPUTE_FRAMES fails (common when a method really is >64KB
+            //   after inlining), fall back to COMPUTE_MAXS and then strip
+            //   StackMapTable attributes + lower the class version to 50 (Java 6)
+            //   so the JVM runs in the older type-inference verifier which does not
+            //   require stack maps at all.
+            //
+            // Tier C: Return raw fallback bytes.  The class may VerifyError if the
+            //   JVM is strict, but at least the class is present in the JAR.
             if (!renameMap.isEmpty()) {
                 // ── Tier A ──────────────────────────────────────────────────
                 try {
@@ -240,9 +261,13 @@ public class JClassNode extends ClassNode implements Opcodes {
                     JClassNode  tmp = new JClassNode();
                     ClassRemapper remapper = new ClassRemapper(tmp, new JRemapper(renameMap));
                     cr.accept(remapper, ClassReader.SKIP_FRAMES);
+                    // COMPUTE_FRAMES regenerates StackMapTable from scratch.
+                    // We need a ClassWriter that can resolve superclass chains;
+                    // use a plain ClassWriter with a custom getCommonSuperClass
+                    // that falls back to Object rather than crashing on missing classes.
                     ClassWriter cwA = new ClassWriter(ClassWriter.COMPUTE_FRAMES) {
                         @Override
-                        protected String getCommonSuperClass(String type1, String type2) {
+                        public String getCommonSuperClass(String type1, String type2) {
                             // Conservative fallback: return Object.
                             // Incorrect for some branches but safe — the verifier
                             // accepts it and the code still runs correctly.
