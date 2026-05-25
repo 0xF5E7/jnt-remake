@@ -9,6 +9,9 @@ import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldNode;
 import org.objectweb.asm.tree.InsnNode;
 import org.objectweb.asm.tree.MethodNode;
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.commons.ClassRemapper;
+import war.metaphor.asm.JRemapper;
 import war.jnt.dash.Ansi;
 import war.jnt.dash.Level;
 import war.jnt.dash.Logger;
@@ -201,7 +204,9 @@ public class JClassNode extends ClassNode implements Opcodes {
                         new Ansi().c(YELLOW).s(realName).r(false).c(Ansi.Color.BRIGHT_YELLOW),
                         ex2.getMessage()));
         }
-        
+        // Tier 3: fall back to original unobfuscated bytes so the class is never
+        // silently dropped from the JAR (which causes ClassNotFoundException at runtime).
+        // Try stored bytes first; if null, re-read lazily from the input JAR by realName.
         byte[] fallback = originalBytes;
         if (fallback == null && ObfuscatorContext.INSTANCE != null
                 && ObfuscatorContext.INSTANCE.getInput() != null
@@ -220,22 +225,29 @@ public class JClassNode extends ClassNode implements Opcodes {
                     String.format("Falling back to original bytes for %s (%s) — class will be unobfuscated",
                         new Ansi().c(YELLOW).s(name).r(false).c(Ansi.Color.BRIGHT_YELLOW),
                         new Ansi().c(YELLOW).s(realName).r(false).c(Ansi.Color.BRIGHT_YELLOW)));
-            // The fallback bytes still declare this_class = realName inside the bytecode.
-            // JarWriter writes the entry as node.name, so if realName != name the JVM rejects
-            // it with "wrong name: <realName>".  Re-parse and patch this_class to match.
-            if (!name.equals(realName)) {
+            
+            java.util.Map<String, String> renameMap =
+                    ObfuscatorContext.INSTANCE != null
+                    ? ObfuscatorContext.INSTANCE.getClassRenameMap()
+                    : java.util.Collections.emptyMap();
+            if (!renameMap.isEmpty()) {
                 try {
-                    org.objectweb.asm.ClassReader cr = new org.objectweb.asm.ClassReader(fallback);
-                    org.objectweb.asm.tree.ClassNode tmp = new org.objectweb.asm.tree.ClassNode(Opcodes.ASM8);
-                    cr.accept(tmp, 0);
-                    tmp.name = name;  // patch this_class to the renamed entry name
-                    org.objectweb.asm.ClassWriter cw2 =
-                            new org.objectweb.asm.ClassWriter(org.objectweb.asm.ClassWriter.COMPUTE_MAXS);
+                    ClassReader cr  = new ClassReader(fallback);
+                    JClassNode  tmp = new JClassNode();
+                    // Use ClassRemapper to rewrite every class reference in the bytecode
+                    // (this_class, super_class, interfaces, field/method descriptors, LDC
+                    //  class constants, CHECKCAST, INSTANCEOF, NEW, ANEWARRAY owners, etc.)
+                    ClassRemapper remapper = new ClassRemapper(tmp, new JRemapper(renameMap));
+                    cr.accept(remapper, ClassReader.EXPAND_FRAMES);
+                    ClassWriter cw2 = new ClassWriter(ClassWriter.COMPUTE_MAXS);
                     tmp.accept(cw2);
                     return cw2.toByteArray();
-                } catch (Exception patchEx) {
-                    // If re-emission also fails, fall through and return original bytes as-is.
-                    // The class will have a mismatched name but is better than being absent.
+                } catch (Exception remapEx) {
+                    // Remapping failed (e.g. corrupt frame data after inlining).
+                    // Fall through to return the unmodified original bytes.
+                    Logger.INSTANCE.logln(Level.WARNING, Origin.METAPHOR,
+                            String.format("Remap of fallback bytes also failed for %s: %s",
+                                name, remapEx.getMessage()));
                 }
             }
             return fallback;
