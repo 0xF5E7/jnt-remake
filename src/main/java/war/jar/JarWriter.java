@@ -46,6 +46,12 @@ public class JarWriter {
             classes.parallelStream().forEach(node -> {
                 try {
                     byte[] bytes = node.compute();
+                    if (bytes == null || bytes.length == 0) {
+                        Logger.INSTANCE.logln(Level.FATAL, Origin.INTAKE,
+                                String.format("compute() returned empty bytes for %s — class will be missing from JAR",
+                                        new Ansi().c(RED).s(node.name)));
+                        return;
+                    }
                     String entryName = node.name + ".class";
                     synchronized (jos) {
                         jos.putNextEntry(new JarEntry(entryName));
@@ -54,7 +60,28 @@ public class JarWriter {
                     }
                 } catch (Exception e) {
                     Logger.INSTANCE.logln(Level.FATAL, Origin.INTAKE,
-                            String.format("Failed to write class %s", new Ansi().c(RED).s(node.name)));
+                            String.format("Failed to write class %s: %s",
+                                    new Ansi().c(RED).s(node.name), e.getMessage()));
+                    // Write original bytes directly as a last resort so the class
+                    // is present in the JAR even if unobfuscated, rather than absent.
+                    byte[] raw = node.getOriginalBytes();
+                    if (raw != null && raw.length > 0) {
+                        try {
+                            String entryName = node.name + ".class";
+                            synchronized (jos) {
+                                jos.putNextEntry(new JarEntry(entryName));
+                                jos.write(raw);
+                                jos.closeEntry();
+                            }
+                            Logger.INSTANCE.logln(Level.WARNING, Origin.INTAKE,
+                                    String.format("Wrote original (unobfuscated) bytes for %s as emergency fallback",
+                                            new Ansi().c(RED).s(node.name)));
+                        } catch (Exception inner) {
+                            Logger.INSTANCE.logln(Level.FATAL, Origin.INTAKE,
+                                    String.format("Emergency fallback also failed for %s: %s",
+                                            new Ansi().c(RED).s(node.name), inner.getMessage()));
+                        }
+                    }
                 }
             });
 
