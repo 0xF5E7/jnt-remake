@@ -36,10 +36,9 @@ public class JClassNode extends ClassNode implements Opcodes {
 
     private final Set<JClassNode> children;
     private final Set<JClassNode> parents;
-
     private final Set<String> exemptMembers = new HashSet<>();
     private boolean exemptSelf;
-
+    
     private final boolean library;
     public SymbolTable symbolTable;
     public SymbolTable cachedSymbolTable;
@@ -49,10 +48,6 @@ public class JClassNode extends ClassNode implements Opcodes {
 
     @Setter
     private String liftedInitializer;
-
-    /** Original bytecode stored at load time; used as a last-resort fallback
-     *  when obfuscation inflates the class past JVM limits (Method too large,
-     *  UTF8 string too large). Avoids silently dropping classes from the JAR. */
     private byte[] originalBytes;
 
     public JClassNode() {
@@ -169,15 +164,13 @@ public class JClassNode extends ClassNode implements Opcodes {
         exemptMembers.clear();
         exemptSelf = false;
     }
-
-    /** Store original bytecode before any mutation for use as a last-resort fallback. */
+    
     public void storeOriginalBytes(byte[] bytes) {
         this.originalBytes = bytes;
     }
 
     public byte[] compute() {
         JClassWriter writer;
-        // Tier 1: full frame recomputation (preferred).
         try {
             cacheSymbolTable();
             writer = new JClassWriter(ClassWriter.COMPUTE_FRAMES, symbolTable);
@@ -190,7 +183,7 @@ public class JClassNode extends ClassNode implements Opcodes {
                         new Ansi().c(YELLOW).s(name).r(false).c(Ansi.Color.BRIGHT_YELLOW),
                         new Ansi().c(YELLOW).s(realName).r(false).c(Ansi.Color.BRIGHT_YELLOW)));
         }
-        // Tier 2: recompute maxs only (skips frame verification, handles most frame issues).
+    
         try {
             resetSymbolTable();
             writer = new JClassWriter(ClassWriter.COMPUTE_MAXS, symbolTable);
@@ -204,9 +197,6 @@ public class JClassNode extends ClassNode implements Opcodes {
                         new Ansi().c(YELLOW).s(realName).r(false).c(Ansi.Color.BRIGHT_YELLOW),
                         ex2.getMessage()));
         }
-        // Tier 3: fall back to original unobfuscated bytes so the class is never
-        // silently dropped from the JAR (which causes ClassNotFoundException at runtime).
-        // Try stored bytes first; if null, re-read lazily from the input JAR by realName.
         byte[] fallback = originalBytes;
         if (fallback == null && ObfuscatorContext.INSTANCE != null
                 && ObfuscatorContext.INSTANCE.getInput() != null
@@ -225,11 +215,6 @@ public class JClassNode extends ClassNode implements Opcodes {
                     String.format("Falling back to original bytes for %s (%s) — class will be unobfuscated",
                         new Ansi().c(YELLOW).s(name).r(false).c(Ansi.Color.BRIGHT_YELLOW),
                         new Ansi().c(YELLOW).s(realName).r(false).c(Ansi.Color.BRIGHT_YELLOW)));
-            // The fallback bytes came from the input JAR: they still have old class names in
-            // this_class AND inside method bodies (INVOKEVIRTUAL owners, CHECKCAST targets, etc.).
-            // Re-apply the class rename mapping via ClassRemapper so all references are updated,
-            // then re-emit.  This prevents NoClassDefFoundError for renamed classes referenced
-            // from a fallback class that itself couldn't be fully obfuscated.
             java.util.Map<String, String> renameMap;
             if (ObfuscatorContext.INSTANCE != null
                     && ObfuscatorContext.INSTANCE.getClassRenameMap() != null) {
@@ -237,23 +222,6 @@ public class JClassNode extends ClassNode implements Opcodes {
             } else {
                 renameMap = java.util.Collections.emptyMap();
             }
-            // Apply the class rename mapping to all references in the bytecode, then
-            // re-emit with valid stack map frames so Java 7+ verifier accepts the class.
-            //
-            // Tier A: SKIP_FRAMES read + COMPUTE_FRAMES write.
-            //   SKIP_FRAMES on the reader avoids "Method too large" during ClassReader
-            //   parsing (EXPAND_FRAMES would do that).  COMPUTE_FRAMES on the writer
-            //   regenerates correct StackMapTable attributes from scratch — required for
-            //   any class whose version is >= 51 (Java 7) to pass the JVM verifier.
-            //
-            // Tier B: If COMPUTE_FRAMES fails (common when a method really is >64KB
-            //   after inlining), fall back to COMPUTE_MAXS and then strip
-            //   StackMapTable attributes + lower the class version to 50 (Java 6)
-            //   so the JVM runs in the older type-inference verifier which does not
-            //   require stack maps at all.
-            //
-            // Tier C: Return raw fallback bytes.  The class may VerifyError if the
-            //   JVM is strict, but at least the class is present in the JAR.
             if (!renameMap.isEmpty()) {
                 // ── Tier A ──────────────────────────────────────────────────
                 try {
@@ -261,16 +229,9 @@ public class JClassNode extends ClassNode implements Opcodes {
                     JClassNode  tmp = new JClassNode();
                     ClassRemapper remapper = new ClassRemapper(tmp, new JRemapper(renameMap));
                     cr.accept(remapper, ClassReader.SKIP_FRAMES);
-                    // COMPUTE_FRAMES regenerates StackMapTable from scratch.
-                    // We need a ClassWriter that can resolve superclass chains;
-                    // use a plain ClassWriter with a custom getCommonSuperClass
-                    // that falls back to Object rather than crashing on missing classes.
                     ClassWriter cwA = new ClassWriter(ClassWriter.COMPUTE_FRAMES) {
                         @Override
                         public String getCommonSuperClass(String type1, String type2) {
-                            // Conservative fallback: return Object.
-                            // Incorrect for some branches but safe — the verifier
-                            // accepts it and the code still runs correctly.
                             try { return super.getCommonSuperClass(type1, type2); }
                             catch (Exception ignored) { return "java/lang/Object"; }
                         }
@@ -291,9 +252,6 @@ public class JClassNode extends ClassNode implements Opcodes {
                     ClassWriter cwB = new ClassWriter(ClassWriter.COMPUTE_MAXS);
                     tmp.accept(cwB);
                     byte[] bytes = cwB.toByteArray();
-                    // Strip StackMapTable attributes and lower version to 50 (Java 6)
-                    // so the JVM uses the forgiving type-inference verifier that does
-                    // not require stack map frames.
                     bytes = stripStackMapsAndDowngrade(bytes);
                     return bytes;
                 } catch (Exception tierB) {
@@ -302,9 +260,7 @@ public class JClassNode extends ClassNode implements Opcodes {
                                 name, tierB.getMessage()));
                 }
             }
-            // ── Tier C ──────────────────────────────────────────────────────
-            // Strip stack maps from the raw fallback bytes and downgrade version.
-            // This handles the case where renameMap is empty or both tiers above failed.
+            
             try {
                 return stripStackMapsAndDowngrade(fallback);
             } catch (Exception tierC) {
@@ -317,36 +273,12 @@ public class JClassNode extends ClassNode implements Opcodes {
         throw new RuntimeException("All compute() strategies failed for class " + name + " and no original bytes available");
     }
 
-
-    /**
-     * Strips StackMapTable attributes from every method in the class bytecode
-     * and downgrades the class version to 50 (Java 6).
-     *
-     * Java 6 class files use the type-inference verifier which does not require
-     * stack map frames.  This lets classes that are too large or too corrupt to
-     * have frames recomputed (e.g. after heavy method inlining) still load and
-     * run correctly on modern JVMs, which support version-50 class files
-     * indefinitely for backwards compatibility.
-     *
-     * The bytecode layout of a .class file is:
-     *   0xCAFEBABE (4) | minor (2) | major (2) | constant_pool ...
-     * Major version 50 = Java 6.  We patch bytes [6..7] to 0x0032.
-     *
-     * StackMapTable is attribute_info with name "StackMapTable".
-     * We use ASM ClassReader/ClassWriter with SKIP_FRAMES + no writer flag
-     * so ASM simply copies everything except frame attributes, which it
-     * drops when the reader skips them.
-     */
     private static byte[] stripStackMapsAndDowngrade(byte[] classBytes) {
-        // Read with SKIP_FRAMES — ASM will not copy StackMapTable attributes
-        // into the ClassNode because it never parsed them.
         org.objectweb.asm.ClassReader cr = new org.objectweb.asm.ClassReader(classBytes);
         // Use a ClassNode as intermediate so we can patch the version.
         org.objectweb.asm.tree.ClassNode cn =
                 new org.objectweb.asm.tree.ClassNode(Opcodes.ASM8);
         cr.accept(cn, ClassReader.SKIP_FRAMES);
-        // Downgrade to Java 6 (major version 50) so the JVM does not require
-        // stack map frames.  Minor version stays 0.
         if (cn.version > 50) cn.version = 50;
         // Write with no special flags — no frame recomputation, just copy.
         ClassWriter cw = new ClassWriter(0);
