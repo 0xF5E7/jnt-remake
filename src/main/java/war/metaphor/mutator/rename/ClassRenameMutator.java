@@ -57,11 +57,18 @@ public class ClassRenameMutator extends MappingMutator {
 
         map(base, mapping);
 
+        // Store the rename map on the context so JClassNode.compute() can
+        // re-apply it inside fallback bytes (references in method bodies).
+        base.getClassRenameMap().putAll(mapping);
+
         Manifest manifest = base.getManifest();
         if (manifest != null) {
             Attributes attrs = manifest.getMainAttributes();
             attrs.replaceAll((_, val) -> {
                 if (val instanceof String strVal) {
+                    // Manifest Main-Class uses dot-notation (e.g. me.exeos.jnicx.Main).
+                    // Our mapping keys use slash-notation (e.g. me/exeos/jnicx/Main).
+                    // Normalise to slashes for the lookup, then convert the result back to dots.
                     String slashForm = strVal.replace('.', '/');
                     String renamed   = mapping.get(slashForm);
                     if (renamed != null) {
