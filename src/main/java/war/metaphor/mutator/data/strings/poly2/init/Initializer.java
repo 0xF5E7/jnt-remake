@@ -11,11 +11,8 @@ import war.metaphor.util.asm.BytecodeUtil;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Map;
+import java.lang.Math;
 
-/**
- * omg wow not simple initializer :flushed:
- * @author Jan
- */
 public class Initializer implements Opcodes
 {
     public final InsnList code;
@@ -33,7 +30,6 @@ public class Initializer implements Opcodes
         int targetLength = 0;
         for (final byte[] sBytes : encrypted)
         {
-            // string length + length byte high + length byte low
             targetLength += sBytes.length + 2;
         }
 
@@ -52,13 +48,30 @@ public class Initializer implements Opcodes
         }
 
         final String encoded = new String(Base64.encode(bytes));
-
-        code.add(new LdcInsnNode(encoded));
+        final int CHUNK = 32767;
+        if (encoded.length() <= CHUNK) {
+            // Fast path: fits in one constant.
+            code.add(new LdcInsnNode(encoded));
+        } else {
+            // Slow path: build via StringBuilder.
+            final String SB  = "java/lang/StringBuilder";
+            final String SBD = "Ljava/lang/StringBuilder;";
+            code.add(new TypeInsnNode(NEW, SB));
+            code.add(new InsnNode(DUP));
+            code.add(new MethodInsnNode(INVOKESPECIAL, SB, "<init>", "()V", false));
+            for (int start = 0; start < encoded.length(); start += CHUNK) {
+                String chunk = encoded.substring(start, Math.min(start + CHUNK, encoded.length()));
+                code.add(new LdcInsnNode(chunk));
+                code.add(new MethodInsnNode(INVOKEVIRTUAL, SB, "append",
+                        "(Ljava/lang/String;)" + SBD, false));
+            }
+            code.add(new MethodInsnNode(INVOKEVIRTUAL, SB, "toString",
+                    "()Ljava/lang/String;", false));
+        }
         code.add(new FieldInsnNode(GETSTATIC, "java/nio/charset/StandardCharsets", "UTF_8", "Ljava/nio/charset/Charset;"));
         code.add(new MethodInsnNode(INVOKEVIRTUAL, "java/lang/String", "getBytes", "(Ljava/nio/charset/Charset;)[B"));
         code.add(new MethodInsnNode(INVOKESTATIC, parent.libPath + "/base64/Base64", "decode", "([B)[B"));
         code.add(new FieldInsnNode(PUTSTATIC, parent.parent.name, parent.initField.name, parent.initField.desc));
-
         code.add(BytecodeUtil.makeInteger(parent.cachedStrings.size()));
         code.add(new TypeInsnNode(ANEWARRAY, "[B"));
         code.add(new FieldInsnNode(PUTSTATIC, parent.parent.name, parent.cacheField.name, parent.cacheField.desc));
