@@ -24,6 +24,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -47,6 +48,14 @@ public final class ObfuscatorContext {
     private Map<String, JClassNode> classCache;
 
     private final MappingRepository repo = new MappingRepository();
+
+    /**
+     * Populated by ClassRenameMutator: maps original slash-form class name
+     * (e.g. "me/exeos/jnicx/Main") -> renamed name (e.g. "lIll1llIl1").
+     * Used by JClassNode.compute() to re-apply renaming inside fallback bytes
+     * so that references inside method bodies are also updated.
+     */
+    private Map<String, String> classRenameMap = new HashMap<>();
 
     private Manifest manifest;
 
