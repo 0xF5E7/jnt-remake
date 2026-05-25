@@ -55,6 +55,7 @@ public final class ObfuscatorContext {
      * Used by JClassNode.compute() to re-apply renaming inside fallback bytes
      * so that references inside method bodies are also updated.
      */
+    @Builder.Default
     private Map<String, String> classRenameMap = new HashMap<>();
 
     private Manifest manifest;
