@@ -60,11 +60,6 @@ public class JarReader {
         logger.logln(Level.INFO, Origin.INTAKE, String.format("Loaded libraries (%s)",
                 new Ansi().c(WHITE).s(String.format("%dms", System.currentTimeMillis() - start))));
 
-//        List<String> mappingFiles = config.getStringList("mappings");
-//        if (mappingFiles != null && !mappingFiles.isEmpty()) {
-//            applyMappings(mappingFiles, logger);
-//        }
-
         classes.parallelStream().forEach(classNode -> {
             String sourceFile = classNode.sourceFile;
             if (sourceFile != null && sourceFile.startsWith("pass::jnt:")) {
@@ -98,8 +93,10 @@ public class JarReader {
                 if (entry.isDirectory()) return;
                 if (entry.getName().endsWith(".class")) {
                     try (InputStream is = jar.getInputStream(entry)) {
+                        // Read bytes before ClassReader so the stream isn't consumed,
+                        // and so classBytes is in scope for both try and catch blocks.
+                        byte[] classBytes = IOUtils.toByteArray(is);
                         try {
-                            byte[] classBytes = IOUtils.toByteArray(is);
                             ClassReader cr = new ClassReader(classBytes);
                             JClassNode node = new JClassNode(isLibrary);
                             cr.accept(node, (isLibrary ? ClassReader.SKIP_DEBUG : 0) | ClassReader.SKIP_FRAMES);
@@ -109,7 +106,7 @@ public class JarReader {
                             if (isLibrary) libraries.add(node);
                             else classes.add(node);
                         } catch (Exception e) {
-                            // `classBytes` already holds the raw bytes (stream was consumed above).
+                            // classBytes is in scope here — stream was already fully read above.
                             if (!isLibrary) resources.add(new JarResource(entry.getName(), classBytes));
                             Logger.INSTANCE.logln(Level.WARNING, Origin.INTAKE, "Parsed class as resource: " + entry.getName());
                         }
