@@ -1,4 +1,4 @@
-package war.metaphor.mutator.data.strings;
+package war.metaphor.mutator.split;
 
 import org.objectweb.asm.tree.*;
 import war.configuration.ConfigurationSection;
