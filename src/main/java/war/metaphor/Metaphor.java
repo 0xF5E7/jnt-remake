@@ -99,6 +99,7 @@ public class Metaphor {
                 .mutator("dot-graph", DotExportMutator.class)
 
                 .mutator("indy-rewriter", IndyTransformer.class)
+                .mutator("class-split", ClassSplittingTransformer.class)
 
                 .mutator("splash-screen", SplashScreenMutator.class)
 
