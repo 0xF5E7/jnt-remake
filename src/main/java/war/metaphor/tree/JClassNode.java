@@ -15,10 +15,14 @@ import war.jnt.dash.Logger;
 import war.jnt.dash.Origin;
 import war.metaphor.asm.JClassWriter;
 
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
+import war.metaphor.base.ObfuscatorContext;
 
 import static war.jnt.dash.Ansi.Color.YELLOW;
 
@@ -199,14 +203,28 @@ public class JClassNode extends ClassNode implements Opcodes {
         }
         // Tier 3: fall back to original unobfuscated bytes so the class is never
         // silently dropped from the JAR (which causes ClassNotFoundException at runtime).
-        if (originalBytes != null) {
+        // Try stored bytes first; if null, re-read lazily from the input JAR by realName.
+        byte[] fallback = originalBytes;
+        if (fallback == null && ObfuscatorContext.INSTANCE != null
+                && ObfuscatorContext.INSTANCE.getInput() != null
+                && realName != null) {
+            try (JarFile jar = new JarFile(ObfuscatorContext.INSTANCE.getInput().toFile())) {
+                JarEntry entry = jar.getJarEntry(realName + ".class");
+                if (entry != null) {
+                    try (InputStream is = jar.getInputStream(entry)) {
+                        fallback = is.readAllBytes();
+                    }
+                }
+            } catch (Exception ignored) { }
+        }
+        if (fallback != null) {
             Logger.INSTANCE.logln(Level.WARNING, Origin.METAPHOR,
                     String.format("Falling back to original bytes for %s (%s) — class will be unobfuscated",
                         new Ansi().c(YELLOW).s(name).r(false).c(Ansi.Color.BRIGHT_YELLOW),
                         new Ansi().c(YELLOW).s(realName).r(false).c(Ansi.Color.BRIGHT_YELLOW)));
-            return originalBytes;
+            return fallback;
         }
-        throw new RuntimeException("All compute() strategies failed for class " + name + " and no original bytes were stored");
+        throw new RuntimeException("All compute() strategies failed for class " + name + " and no original bytes available");
     }
 
     public MethodNode getStaticInit() {
