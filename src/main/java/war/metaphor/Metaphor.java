@@ -88,6 +88,7 @@ public class Metaphor {
                 
 
                 .mutator("ref", ReferenceMutator.class)
+                .mutator("var-duplicate", VarDuplicateTransformer.class)
 
                 .mutator("lift-constructors", LiftInitializersMutator.class)
 
