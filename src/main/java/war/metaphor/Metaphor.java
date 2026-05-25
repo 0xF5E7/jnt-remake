@@ -14,6 +14,7 @@ import war.metaphor.mutator.integrity.mainCallCheck.MainCallCheckMutator;
 import war.metaphor.mutator.integrity.method.MethodIntegrityMutator;
 import war.metaphor.mutator.loader.*;
 import war.metaphor.mutator.misc.*;
+import war.metaphor.mutator.split.*;
 import war.metaphor.mutator.optimization.OptimizationMutator;
 import war.metaphor.mutator.optimization.UnusedClassMutator;
 import war.metaphor.mutator.optimization.UnusedMethodMutator;
@@ -74,7 +75,7 @@ public class Metaphor {
             
                 .mutator("flow.break", BlockBreakMutator.class)
                 .mutator("flow.flattening", ControlFlowFlatteningMutator.class)
-                .mutator("method-split",    MethodSplittingMutator.class)
+                .mutator("method-split",    MethodSplittingTransformer.class)
                 .mutator("flow.shuffle", InstructionShuffleMutator.class)
                 .mutator("flow.switch", SwitchMutator.class)
                 .mutator("flow.traps", TrapEdgeMutator.class)
