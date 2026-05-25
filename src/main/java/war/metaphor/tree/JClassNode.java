@@ -225,11 +225,18 @@ public class JClassNode extends ClassNode implements Opcodes {
                     String.format("Falling back to original bytes for %s (%s) — class will be unobfuscated",
                         new Ansi().c(YELLOW).s(name).r(false).c(Ansi.Color.BRIGHT_YELLOW),
                         new Ansi().c(YELLOW).s(realName).r(false).c(Ansi.Color.BRIGHT_YELLOW)));
-            
-            java.util.Map<String, String> renameMap =
-                    ObfuscatorContext.INSTANCE != null
-                    ? ObfuscatorContext.INSTANCE.getClassRenameMap()
-                    : java.util.Collections.emptyMap();
+            // The fallback bytes came from the input JAR: they still have old class names in
+            // this_class AND inside method bodies (INVOKEVIRTUAL owners, CHECKCAST targets, etc.).
+            // Re-apply the class rename mapping via ClassRemapper so all references are updated,
+            // then re-emit.  This prevents NoClassDefFoundError for renamed classes referenced
+            // from a fallback class that itself couldn't be fully obfuscated.
+            java.util.Map<String, String> renameMap;
+            if (ObfuscatorContext.INSTANCE != null
+                    && ObfuscatorContext.INSTANCE.getClassRenameMap() != null) {
+                renameMap = ObfuscatorContext.INSTANCE.getClassRenameMap();
+            } else {
+                renameMap = java.util.Collections.emptyMap();
+            }
             if (!renameMap.isEmpty()) {
                 try {
                     ClassReader cr  = new ClassReader(fallback);
@@ -238,7 +245,12 @@ public class JClassNode extends ClassNode implements Opcodes {
                     // (this_class, super_class, interfaces, field/method descriptors, LDC
                     //  class constants, CHECKCAST, INSTANCEOF, NEW, ANEWARRAY owners, etc.)
                     ClassRemapper remapper = new ClassRemapper(tmp, new JRemapper(renameMap));
-                    cr.accept(remapper, ClassReader.EXPAND_FRAMES);
+                    // SKIP_FRAMES avoids the "Method too large" crash that
+                    // EXPAND_FRAMES triggers when the inliner has already
+                    // bloated a method past the 64KB bytecode limit.
+                    // ClassRemapper only needs to rewrite name constants;
+                    // it does not depend on frame data.
+                    cr.accept(remapper, ClassReader.SKIP_FRAMES);
                     ClassWriter cw2 = new ClassWriter(ClassWriter.COMPUTE_MAXS);
                     tmp.accept(cw2);
                     return cw2.toByteArray();
