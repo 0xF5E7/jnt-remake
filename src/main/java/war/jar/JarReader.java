@@ -99,13 +99,18 @@ public class JarReader {
                 if (entry.getName().endsWith(".class")) {
                     try (InputStream is = jar.getInputStream(entry)) {
                         try {
-                            ClassReader cr = new ClassReader(is);
+                            byte[] classBytes = IOUtils.toByteArray(is);
+                            ClassReader cr = new ClassReader(classBytes);
                             JClassNode node = new JClassNode(isLibrary);
                             cr.accept(node, (isLibrary ? ClassReader.SKIP_DEBUG : 0) | ClassReader.SKIP_FRAMES);
+                            // Store original bytes for last-resort fallback in compute()
+                            // so classes inflated past JVM limits aren't silently dropped.
+                            if (!isLibrary) node.storeOriginalBytes(classBytes);
                             if (isLibrary) libraries.add(node);
                             else classes.add(node);
                         } catch (Exception e) {
-                            if (!isLibrary) resources.add(new JarResource(entry.getName(), IOUtils.toByteArray(is)));
+                            // `classBytes` already holds the raw bytes (stream was consumed above).
+                            if (!isLibrary) resources.add(new JarResource(entry.getName(), classBytes));
                             Logger.INSTANCE.logln(Level.WARNING, Origin.INTAKE, "Parsed class as resource: " + entry.getName());
                         }
                     } catch (Exception e) {
@@ -134,40 +139,6 @@ public class JarReader {
         if (!input.exists() || !input.isFile()) throw new RuntimeException("Invalid input file");
         loadJarFile(input, false);
     }
-
-//    private void applyMappings(List<String> mappingFiles, Logger logger) {
-//        logger.logln(Level.INFO, Origin.METAPHOR, String.format("Loading mappings from %s", new Ansi().c(WHITE).s(mappingFiles)));
-//        Gson gson = new Gson();
-//
-//        for (String mappingPath : mappingFiles) {
-//            File mappingFile = new File(mappingPath);
-//            if (!mappingFile.exists()) continue;
-//
-//            try (FileReader fr = new FileReader(mappingFile);
-//                 JsonReader reader = new JsonReader(fr)) {
-//
-//                JsonObject root = gson.fromJson(reader, JsonObject.class);
-//                if (!root.has("classes")) continue;
-//
-//                JsonObject classesObj = root.getAsJsonObject("classes");
-//
-//                for (Map.Entry<String, JsonElement> entry : classesObj.entrySet()) {
-//                    String originalName = entry.getKey();
-//                    String mappedName = entry.getValue().getAsString();
-//
-//                    JClassNode classNode = classMap.get(mappedName);
-//
-//                    if (classNode != null) {
-//                        classNode.setRealName(originalName);
-//                    } else {
-//                        //TODO: IDK, this was for grunt hsit
-//                    }
-//                }
-//            } catch (IOException e) {
-//                e.printStackTrace();
-//            }
-//        }
-//    }
 
     public void clear() {
         classes.clear();
