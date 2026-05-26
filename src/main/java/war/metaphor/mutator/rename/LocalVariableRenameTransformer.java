@@ -1,7 +1,6 @@
 package war.metaphor.mutator.rename;
 
-import org.objectweb.asm.tree.LocalVariableNode;
-import org.objectweb.asm.tree.MethodNode;
+import org.objectweb.asm.tree.*;
 import war.configuration.ConfigurationSection;
 import war.jnt.annotate.Level;
 import war.jnt.annotate.Stability;
@@ -14,53 +13,11 @@ import war.metaphor.util.Dictionary;
 import war.metaphor.util.Purpose;
 
 import java.lang.reflect.Modifier;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
-/**
- * LocalVariableRenameTransformer
- *
- * <p>Renames every entry in the Local Variable Table (LVT) of every eligible
- * method.  The LVT is a debug-only structure that maps bytecode slot indices
- * to human-readable names seen in decompiled output — renaming it makes
- * decompiled code significantly harder to read without touching any actual
- * bytecode instructions.
- *
- * <p>This mutator is intentionally lightweight: it only writes to
- * {@link LocalVariableNode#name} fields and never reorders, adds, or removes
- * instructions.  It is therefore safe to run at any point in the pipeline,
- * though it should be placed <em>before</em> the {@code strip} mutator
- * (which nulls {@code method.localVariables} entirely) if you want the
- * renamed table to survive into the output JAR.
- *
- * <h3>Slot-stable renaming</h3>
- * The JVM allows a single slot index to have multiple LVT entries with
- * non-overlapping live ranges (e.g. a loop variable reused across iterations,
- * or two different variables sharing a slot after the first goes out of
- * scope).  This mutator memoises the generated name per slot per method so
- * every LVT entry that maps to the same slot receives the same new name,
- * exactly matching how a decompiler reconstructs local variable names.
- *
- * <h3>Config</h3>
- * <pre>
- * renamer.local:
- *   enabled:    true
- *   dictionary: unicode   # same modes as class/method/field renamers
- *   length:     5         # base character count for the generated name
- *   prefix:     ""        # optional fixed prefix (e.g. "lv_")
- *   skip-this:  true      # keep the implicit 'this' parameter readable
- * </pre>
- *
- * <h3>Placement recommendation</h3>
- * <pre>
- * order:
- *   - renamer.class
- *   - renamer.method
- *   - renamer.field
- *   - renamer.local   ← here, before strip
- *   - strip
- * </pre>
- */
 @Stability(Level.VERY_HIGH)
 public class LocalVariableRenameTransformer extends Mutator {
 
@@ -70,8 +27,6 @@ public class LocalVariableRenameTransformer extends Mutator {
     private final String prefix;
     private final int length;
     private final boolean skipThis;
-
-    // ── constructor ───────────────────────────────────────────────────────────
 
     public LocalVariableRenameTransformer(ObfuscatorContext base, ConfigurationSection config) {
         super(base, config);
@@ -83,34 +38,36 @@ public class LocalVariableRenameTransformer extends Mutator {
 
     @Override
     public void run(ObfuscatorContext base) {
-        int renamedSlots   = 0;  // unique slot→name mappings created
-        int renamedEntries = 0;  // total LVT entries written (≥ renamedSlots)
-        int skippedMethods = 0;
+        int renamedSlots   = 0;
+        int renamedEntries = 0;
+        int synthesized    = 0;
 
         for (JClassNode classNode : base.getClasses()) {
             if (classNode.isExempt()) continue;
 
             for (MethodNode method : classNode.methods) {
-                if (classNode.isExempt(method))           { skippedMethods++; continue; }
-                if (Modifier.isAbstract(method.access))   { skippedMethods++; continue; }
-                if (Modifier.isNative(method.access))     { skippedMethods++; continue; }
-                if (method.localVariables == null
-                        || method.localVariables.isEmpty()) { skippedMethods++; continue; }
-                if (method.signature != null
-                        && method.signature.equals("bsm::jnt:excluded")) {
-                    skippedMethods++;
-                    continue;
-                }
+                if (classNode.isExempt(method)) continue;
+                if (Modifier.isAbstract(method.access)) continue;
+                if (Modifier.isNative(method.access)) continue;
+                if (method.signature != null && method.signature.equals("bsm::jnt:excluded")) continue;
+                if (method.instructions == null || method.instructions.size() == 0) continue;
 
                 boolean isStatic = Modifier.isStatic(method.access);
+
+                if (method.localVariables == null || method.localVariables.isEmpty()) {
+                    synthesizeLVT(method);
+                    synthesized++;
+                }
+
+                if (method.localVariables == null || method.localVariables.isEmpty()) continue;
+
                 Map<Integer, String> slotNames = new HashMap<>();
 
                 for (LocalVariableNode lv : method.localVariables) {
                     if (skipThis && !isStatic && lv.index == 0) continue;
 
                     if (!slotNames.containsKey(lv.index)) {
-                        String newName = Dictionary.gen(length, Purpose.GENERIC, mode, prefix);
-                        slotNames.put(lv.index, newName);
+                        slotNames.put(lv.index, Dictionary.gen(length, Purpose.GENERIC, mode, prefix));
                         renamedSlots++;
                     }
 
@@ -120,13 +77,49 @@ public class LocalVariableRenameTransformer extends Mutator {
             }
         }
 
-        logger.logln(
-                war.jnt.dash.Level.INFO,
-                Origin.METAPHOR,
-                String.format(
-                        "LocalVariableRenamer: renamed %d slots across %d LVT entries (%d methods skipped)",
-                        renamedSlots, renamedEntries, skippedMethods
-                )
-        );
+        logger.logln(Level.INFO, Origin.METAPHOR,
+            String.format("LocalVariableRenamer: renamed %d slots across %d entries (%d synthetic)",
+                renamedSlots, renamedEntries, synthesized));
+    }
+
+    private void synthesizeLVT(MethodNode method) {
+        Map<Integer, Integer> slotOpcodes = new LinkedHashMap<>();
+
+        for (AbstractInsnNode insn : method.instructions) {
+            if (insn instanceof VarInsnNode var) {
+                slotOpcodes.putIfAbsent(var.var, var.getOpcode());
+            } else if (insn instanceof IincInsnNode iinc) {
+                slotOpcodes.putIfAbsent(iinc.var, ILOAD);
+            }
+        }
+
+        if (slotOpcodes.isEmpty()) return;
+
+        LabelNode start = new LabelNode();
+        LabelNode end   = new LabelNode();
+        method.instructions.insert(start);
+        method.instructions.add(end);
+
+        if (method.localVariables == null) method.localVariables = new ArrayList<>();
+
+        for (Map.Entry<Integer, Integer> entry : slotOpcodes.entrySet()) {
+            method.localVariables.add(new LocalVariableNode(
+                "var" + entry.getKey(),
+                opcodeToDesc(entry.getValue()),
+                null, start, end,
+                entry.getKey()
+            ));
+        }
+    }
+
+    private String opcodeToDesc(int opcode) {
+        if (opcode >= ISTORE && opcode <= ASTORE) opcode -= (ISTORE - ILOAD);
+        return switch (opcode) {
+            case ILOAD -> "I";
+            case LLOAD -> "J";
+            case FLOAD -> "F";
+            case DLOAD -> "D";
+            default    -> "Ljava/lang/Object;";
+        };
     }
 }
