@@ -246,8 +246,6 @@ public class CompilerExperimental implements ICompiler {
 
 ////        // Linker flags
         cmd.append("-Wl,--gc-sections ")
-                .append("-Wl,--sort-section=alignment ")
-                .append("-Wl,--discard-all ")
                 .append("-Wl,--strip-all ")
                 .append("-Wl,--build-id=none ")
                 .append("-Wl,--as-needed ")
