@@ -232,7 +232,7 @@ public class CompilerExperimental implements ICompiler {
             // Fuck you mingw-w64
             cmd.append("-fstack-protector ");
         } else {
-            cmd.append("-fstack-protector-strong -D_FORTIFY_SOURCE=3 ");
+            cmd.append("-fstack-protector-strong -D_FORTIFY_SOURCE=2 ");
         }
 
         // Add cache sizes
