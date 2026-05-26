@@ -95,7 +95,7 @@ public class NumberTransformer extends Mutator {
     }
 
     private AbstractInsnNode generateInsn(JClassNode cn, InsnList deobfInsns, Number value) {
-        String fieldName = "n$" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        String fieldName = "fuck$" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         String className = value.getClass().getSimpleName();
         String desc = String.valueOf(className.charAt(0));
 
