@@ -43,7 +43,6 @@ public class MethodInliningMutator extends Mutator {
 
         for (JClassNode classNode : base.getClasses()) {
             if (classNode.isExempt()) continue;
-
             for (MethodNode method : classNode.methods) {
                 if (classNode.isExempt(method))
                     continue;
@@ -58,7 +57,6 @@ public class MethodInliningMutator extends Mutator {
 
                         JClassNode fromOwner = target.getClassNode();
                         MethodNode fromMethod = fromOwner.getMethod(node.name, node.desc);
-
                         ClassMethod member = ClassMethod.of(fromOwner, fromMethod);
                         if (membersExempt.contains(member.toString())) {
                             if (debug)
@@ -128,7 +126,6 @@ public class MethodInliningMutator extends Mutator {
         // Fix Stack
         InsnList restoreStack = new InsnList();
         InsnList saveStack = new InsnList();
-
         Type[] args = Type.getArgumentTypes(from.desc);
         int parameters = args.length;
         if (!Modifier.isStatic(from.access)) parameters++;
@@ -170,13 +167,18 @@ public class MethodInliningMutator extends Mutator {
         instructions.add(restoreStack);
         if (returnLocal != -1) instructions.add(new VarInsnNode(returnType.getOpcode(ILOAD), returnLocal));
 
-        if (BytecodeUtil.hasSpace(into, instructions)) {
+        MethodNode dummy = new MethodNode();
+        dummy.instructions = instructions;
+        int intoSize = BytecodeUtil.leeway(into);   // remaining space in target
+        int fromSize = 65536 - BytecodeUtil.leeway(dummy); // size of inlined block
+        boolean fits = (intoSize - fromSize) > 5000; // keep 5KB headroom
+
+        if (fits) {
             into.tryCatchBlocks.addAll(tryCatchBlocks);
             into.instructions.insert(point, instructions);
             into.instructions.remove(point);
+            BytecodeUtil.computeMaxLocals(into);
         }
-
-        BytecodeUtil.computeMaxLocals(into);
     }
 
     public boolean canInline(JClassNode from, MethodNode inlining, JClassNode into, MethodNode receiver, boolean debug) {
@@ -193,7 +195,6 @@ public class MethodInliningMutator extends Mutator {
         if ("<init>".equals(inlining.name)) return false;
         if (inlining.instructions == null || inlining.instructions.size() == 0) return false;
         if (Modifier.isAbstract(inlining.access) || Modifier.isNative(inlining.access)) return false;
-
         if (hasHierarchy(member)) {
             if (debug) Logger.INSTANCE.log(Level.WARNING, Origin.METAPHOR, String.format("Cannot inline %s.%s into %s.%s: Method has hierarchy\n",
                     from.name, inlining.name, into.name, receiver.name));
@@ -378,27 +379,21 @@ public class MethodInliningMutator extends Mutator {
     }
 
     public boolean canAccess(JClassNode c1, JClassNode c2) {
-
         if (c1.name.equals(c2.name))
             return true;
-
         if (Modifier.isPrivate(c1.access))
             return false;
-
         String pkg1 = c1.getPackage();
         String pkg2 = c2.getPackage();
 
         if (!Modifier.isPublic(c1.access))
             return pkg1.equals(pkg2);
-
         return true;
     }
 
     public boolean checkAccess(int access, JClassNode classNode, JClassNode into) {
         if (classNode.name.startsWith("jdk/internal/")) return false;
-
         if (Modifier.isPublic(access)) return true;
-
         if (Modifier.isPrivate(access)) {
             return classNode.name.equals(into.name);
         }
