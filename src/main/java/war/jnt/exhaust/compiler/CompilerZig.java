@@ -59,9 +59,33 @@ public class CompilerZig implements ICompiler {
         logger.logln(Level.INFO, Origin.EXHAUST, "Zig compiler not found, downloading...");
 
         String version = config.getString("zig.version");
-        String os = config.getString("zig.os");
-        String arch = config.getString("zig.arch");
-        String zipName = String.format("zig-%s-%s-%s.zip", arch, os, version);
+
+        // Detect the HOST OS and arch for the Zig toolchain download.
+        // The config zig.os / zig.arch are the CROSS-COMPILATION TARGET, not the host.
+        String rawOs = System.getProperty("os.name").toLowerCase();
+        String hostOs;
+        if (rawOs.contains("windows")) {
+            hostOs = "windows";
+        } else if (rawOs.contains("mac") || rawOs.contains("darwin")) {
+            hostOs = "macos";
+        } else {
+            hostOs = "linux";
+        }
+
+        String rawArch = System.getProperty("os.arch").toLowerCase();
+        String hostArch;
+        if (rawArch.contains("aarch64") || rawArch.contains("arm64")) {
+            hostArch = "aarch64";
+        } else {
+            hostArch = "x86_64";
+        }
+
+        logger.logln(Level.INFO, Origin.EXHAUST,
+            String.format("Detected host: %s-%s (cross-compile target from config: %s-%s)",
+                hostArch, hostOs,
+                config.getString("zig.arch"), config.getString("zig.os")));
+
+        String zipName = String.format("zig-%s-%s-%s.zip", hostArch, hostOs, version);
         String urlStr = String.format("https://ziglang.org/download/%s/%s", version, zipName);
 
         try {
