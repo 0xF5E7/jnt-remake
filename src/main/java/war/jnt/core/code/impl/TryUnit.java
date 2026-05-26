@@ -18,11 +18,13 @@ import java.util.Set;
 public class TryUnit implements Opcodes {
 
     public static Set<String> canThrow(AbstractInsnNode insn, Map<AbstractInsnNode, Frame<BasicValue>> frames) {
+        if (frames == null) return new HashSet<>();
         return canThrow(insn, frames, new HashSet<>());
     }
 
     private static Set<String> canThrow(AbstractInsnNode insn, Map<AbstractInsnNode, Frame<BasicValue>> frames, Set<ClassMethod> visited) {
         Set<String> throwableTypes = new HashSet<>();
+        if (frames == null) return throwableTypes;
         Frame<BasicValue> frame = frames.get(insn);
         if (frame == null) return throwableTypes;
 
