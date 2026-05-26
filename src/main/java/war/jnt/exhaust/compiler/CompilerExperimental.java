@@ -125,9 +125,19 @@ public class CompilerExperimental implements ICompiler {
                                 futures.add(ex.submit(() -> {
                                     try {
                                         String srcPath = new File(targetPath, src).getAbsolutePath();
-                                        process(String.format("%s -I %s -I %s -I %s %s -c %s -o %s -fPIC", gcc, new File(targetPath, "lib").getAbsolutePath(), new File(targetPath).getAbsolutePath(), new File(targetPath, "classes").getAbsolutePath(), getLinkCommandLine(target), srcPath, srcPath.replaceAll("\\.c$", ".o")), debugging.contains(target));
+                                        process(String.format("%s -I %s -I %s -I %s %s -c %s -o %s -fPIC",
+                                                gcc,
+                                                new File(targetPath, "lib").getAbsolutePath(),
+                                                new File(targetPath).getAbsolutePath(),
+                                                new File(targetPath, "classes").getAbsolutePath(),
+                                                getLinkCommandLine(target),
+                                                srcPath,
+                                                srcPath.replaceAll("\\.c$", ".o")),
+                                                debugging.contains(target));
                                     } catch (Exception e) {
-                                        logger.logln(Level.FATAL, Origin.EXHAUST, String.format("Failed to compile source %s for %s.", new Ansi().c(RED).s(src).r(false).c(BRIGHT_RED), new Ansi().c(RED).s(target).r(false).c(BRIGHT_RED)));
+                                        logger.logln(Level.FATAL, Origin.EXHAUST, String.format("Failed to compile source %s for %s.",
+                                                new Ansi().c(RED).s(src).r(false).c(BRIGHT_RED),
+                                                new Ansi().c(RED).s(target).r(false).c(BRIGHT_RED)));
                                         e.printStackTrace(System.err);
                                     }
                                 }));
@@ -156,7 +166,7 @@ public class CompilerExperimental implements ICompiler {
                         link.append(" -o ").append(targetPath).append(File.separator).append("out.jnt");
 
                         try {
-                            process(link.toString(), debugging.contains(target));
+                            process(link.toString(), true); // always show linker output
                         } catch (Exception e) {
                             logger.logln(Level.FATAL, Origin.EXHAUST, String.format("Failed to compile native %s.", new Ansi().c(RED).s(target).r(false).c(BRIGHT_RED)));
                             e.printStackTrace(System.err);
@@ -173,6 +183,7 @@ public class CompilerExperimental implements ICompiler {
                         }
                     } catch (Exception e) {
                         logger.logln(Level.FATAL, Origin.EXHAUST, String.format("Failed to compile for %s.", new Ansi().c(RED).s(target).r(false).c(BRIGHT_RED)));
+                        e.printStackTrace(System.err);
                     }
                 });
             }
@@ -188,8 +199,7 @@ public class CompilerExperimental implements ICompiler {
         logger.logln(Level.INFO, Origin.EXHAUST, String.format("Compiled natives in %s.", new Ansi().c(WHITE).s(String.format("%sms", elapsed))));
     }
 
-    @SneakyThrows
-    private void process(String commandLine, boolean debug) {
+    private void process(String commandLine, boolean debug) throws IOException, InterruptedException {
         Logger.INSTANCE.logln(Level.DEBUG, Origin.EXHAUST, String.format("Running command: %s", new Ansi().c(BRIGHT_CYAN).s(commandLine)));
         StringTokenizer st = new StringTokenizer(commandLine);
         String[] cmdarray = new String[st.countTokens()];
@@ -203,22 +213,29 @@ public class CompilerExperimental implements ICompiler {
 
         BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
 
+        StringBuilder output = new StringBuilder();
         String line;
         while ((line = reader.readLine()) != null) {
-            if (debug) {
-                logger.logln(Level.FATAL, Origin.EXHAUST, line);
-            }
+            output.append(line).append("\n");
+            // always log compiler/linker output so errors are never hidden
+            logger.logln(Level.DEBUG, Origin.EXHAUST, line);
         }
 
-        process.waitFor();
+        int exitCode = process.waitFor();
+        if (exitCode != 0) {
+            String errorOutput = output.toString().trim();
+            if (!errorOutput.isEmpty()) {
+                logger.logln(Level.FATAL, Origin.EXHAUST, errorOutput);
+            }
+            throw new IOException("Process exited with code " + exitCode + ": " + commandLine);
+        }
     }
 
     public String getLinkCommandLine(String target) {
         StringBuilder cmd = new StringBuilder();
 
-        // Base compiler configuration
+        // Base compiler flags
         cmd.append(" -fno-semantic-interposition ")
-//                .append("-O1     ")
                 .append("-march=native -mtune=native ")
                 .append("-funroll-loops ")
                 .append("-finline-functions ")
@@ -227,15 +244,16 @@ public class CompilerExperimental implements ICompiler {
                 .append("-fstrict-overflow -fstrict-aliasing -fomit-frame-pointer ")
                 .append("-fPIC -fvisibility=hidden -ffunction-sections -fdata-sections ")
                 .append("-Wno-incompatible-pointer-types ")
-                .append("-D_GLIBCXX_ASSERTIONS -Wformat -Werror=format-security ");
+                .append("-Wformat -Werror=format-security ");
+
         if (target.contains("windows")) {
-            // Fuck you mingw-w64
             cmd.append("-fstack-protector ");
         } else {
+            // _FORTIFY_SOURCE=3 is not supported on all clang/Android versions; use 2
             cmd.append("-fstack-protector-strong -D_FORTIFY_SOURCE=2 ");
         }
 
-        // Add cache sizes
+        // Cache size defines
         int classCache = Cache.Companion.cachedClasses();
         int methodCache = Cache.Companion.cachedMethods();
         int fieldCache = Cache.Companion.cachedFields();
@@ -244,12 +262,14 @@ public class CompilerExperimental implements ICompiler {
                 .append("-DMETHOD_CACHE=").append(methodCache).append(" ")
                 .append("-DFIELD_CACHE=").append(fieldCache).append(" ");
 
-////        // Linker flags
+        // Linker flags — removed --sort-section=alignment and --discard-all
+        // as they are unsupported by clang/lld on Android/Termux
         cmd.append("-Wl,--gc-sections ")
                 .append("-Wl,--strip-all ")
                 .append("-Wl,--build-id=none ")
                 .append("-Wl,--as-needed ")
                 .append("-Wl,-Bsymbolic ");
+
         if (target.contains("linux")) {
             cmd.append("-Wl,--hash-style=gnu ")
                     .append("-Wl,-z,max-page-size=4096 ")
