@@ -239,7 +239,7 @@ public class CompilerExperimental implements ICompiler {
                 .append("-march=native -mtune=native ")
                 .append("-funroll-loops ")
                 .append("-finline-functions ")
-                .append("-ftree-slp-vectorize -ftree-vectorize -ftree-loop-vectorize ")
+                .append("-ftree-slp-vectorize -ftree-vectorize ")
                 .append("-ffast-math -fno-math-errno -fno-signed-zeros -fno-trapping-math ")
                 .append("-fstrict-overflow -fstrict-aliasing -fomit-frame-pointer ")
                 .append("-fPIC -fvisibility=hidden -ffunction-sections -fdata-sections ")
