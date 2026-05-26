@@ -2,7 +2,7 @@ package war.metaphor.mutator.rename;
 
 import org.objectweb.asm.tree.*;
 import war.configuration.ConfigurationSection;
-import war.jnt.annotate.Level;
+import war.jnt.dash.Level;
 import war.jnt.annotate.Stability;
 import war.jnt.dash.Logger;
 import war.jnt.dash.Origin;
@@ -77,7 +77,7 @@ public class LocalVariableRenameTransformer extends Mutator {
             }
         }
 
-        logger.logln(Level.VERY_HIGH, Origin.METAPHOR,
+        logger.logln(Level.INFO, Origin.METAPHOR,
             String.format("LocalVariableRenamer: renamed %d slots across %d entries (%d synthetic)",
                 renamedSlots, renamedEntries, synthesized));
     }
