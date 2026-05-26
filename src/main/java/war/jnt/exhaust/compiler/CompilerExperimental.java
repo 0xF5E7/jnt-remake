@@ -28,6 +28,17 @@ public class CompilerExperimental implements ICompiler {
     private static final Timing timing = new Timing();
     private final Processor processor;
 
+    /** Termux prefix, e.g. /data/data/com.termux/files/usr — null when not on Termux */
+    private static final String TERMUX_PREFIX = detectTermuxPrefix();
+
+    private static String detectTermuxPrefix() {
+        // $PREFIX is set by Termux; fall back to the well-known path
+        String env = System.getenv("PREFIX");
+        if (env != null && new java.io.File(env).isDirectory()) return env;
+        java.io.File fallback = new java.io.File("/data/data/com.termux/files/usr");
+        return fallback.isDirectory() ? fallback.getAbsolutePath() : null;
+    }
+
     public CompilerExperimental(Processor processor) {
         this.processor = processor;
     }
@@ -125,12 +136,13 @@ public class CompilerExperimental implements ICompiler {
                                 futures.add(ex.submit(() -> {
                                     try {
                                         String srcPath = new File(targetPath, src).getAbsolutePath();
-                                        process(String.format("%s -I %s -I %s -I %s %s -c %s -o %s -fPIC",
+                                        process(String.format("%s -I %s -I %s -I %s %s%s -c %s -o %s -fPIC",
                                                 gcc,
                                                 new File(targetPath, "lib").getAbsolutePath(),
                                                 new File(targetPath).getAbsolutePath(),
                                                 new File(targetPath, "classes").getAbsolutePath(),
                                                 getLinkCommandLine(target),
+                                                getTermuxFlags(target),
                                                 srcPath,
                                                 srcPath.replaceAll("\\.c$", ".o")),
                                                 debugging.contains(target));
@@ -229,6 +241,32 @@ public class CompilerExperimental implements ICompiler {
             }
             throw new IOException("Process exited with code " + exitCode + ": " + commandLine);
         }
+    }
+
+    /**
+     * When running inside Termux, the system GCC/clang needs:
+     *  1. --sysroot pointing at $PREFIX
+     *  2. The arch-specific asm headers (e.g. aarch64-linux-android/asm)
+     * Returns an empty string on non-Termux environments.
+     */
+    private String getTermuxFlags(String target) {
+        if (TERMUX_PREFIX == null) return "";
+
+        String archDir = switch (target) {
+            case "aarch64-linux" -> "aarch64-linux-android";
+            case "x86_64-linux"  -> "x86_64-linux-android";
+            case "x86-linux"     -> "i686-linux-android";
+            case "arm-linux"     -> "arm-linux-androideabi";
+            default              -> null;
+        };
+
+        StringBuilder flags = new StringBuilder();
+        flags.append(" --sysroot=").append(TERMUX_PREFIX);
+        flags.append(" -I").append(TERMUX_PREFIX).append("/include");
+        if (archDir != null) {
+            flags.append(" -I").append(TERMUX_PREFIX).append("/include/").append(archDir);
+        }
+        return flags.toString();
     }
 
     public String getLinkCommandLine(String target) {
