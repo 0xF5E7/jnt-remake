@@ -73,7 +73,7 @@ public class LocalVariableRenameTransformer extends Mutator {
 
     // ── constructor ───────────────────────────────────────────────────────────
 
-    public LocalVariableRenameMutator(ObfuscatorContext base, ConfigurationSection config) {
+    public LocalVariableRenameTransformer(ObfuscatorContext base, ConfigurationSection config) {
         super(base, config);
         this.mode     = Dictionary.Mode.of(config == null ? null : config.getString("dictionary", "random"));
         this.prefix   = config == null ? "" : config.getString("prefix", "");
