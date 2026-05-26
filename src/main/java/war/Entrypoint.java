@@ -79,7 +79,7 @@ public class Entrypoint {
         if (loggerEnabled) logger.ascii();
         logger.logln(Level.INFO, Origin.FUSEBOX, "Welcome to JNT" + JNT_DISTRO + (JNT_DISTRO == 2 ? " (LTS)" : " (BETA)"));
         logger.logln(Level.INFO, Origin.FUSEBOX, String.format("Running on %s, JVM-%s", new Ansi().c(WHITE).s(System.getProperty("java.vendor")), new Ansi().c(WHITE).s(System.getProperty("java.version"))));
-        logger.logln(Level.INFO, Origin.FUSEBOX, "Software build: jnt" + JNT_DISTRO + "+" + new Ansi().c(GREEN).s(GIT_HASH));
+        logger.logln(Level.INFO, Origin.FUSEBOX, "Software build: Ark" + JNT_DISTRO + "+" + new Ansi().c(GREEN).s(GIT_HASH));
 
         File configFile = (File) options.valueOf("config");
         if (configFile == null) {
