@@ -86,13 +86,17 @@ public class CompilerZig implements ICompiler {
                 hostArch, hostOs,
                 config.getString("zig.arch"), config.getString("zig.os")));
 
-        // Zig filenames are zig-{os}-{arch}-{version}.zip  (OS first, then arch)
-        String zipName = String.format("zig-%s-%s-%s.zip", hostOs, hostArch, version);
-        String urlStr = String.format("https://ziglang.org/download/%s/%s", version, zipName);
+        // Zig filenames: zig-{arch}-{os}-{version}.{ext}
+        // Windows/macOS use .zip; Linux uses .tar.xz
+        boolean isWindowsHost = hostOs.equals("windows");
+        boolean isLinuxHost   = hostOs.equals("linux");
+        String archiveSuffix  = isWindowsHost ? ".zip" : ".tar.xz";
+        String archiveName    = String.format("zig-%s-%s-%s%s", hostArch, hostOs, version, archiveSuffix);
+        String urlStr         = String.format("https://ziglang.org/download/%s/%s", version, archiveName);
 
         try {
             URL url = URI.create(urlStr).toURL();
-            File temp = File.createTempFile("zig", ".zip");
+            File temp = File.createTempFile("zig", archiveSuffix);
             temp.deleteOnExit();
 
             // Follow redirects manually (HttpURLConnection doesn't cross http->https)
@@ -140,13 +144,15 @@ public class CompilerZig implements ICompiler {
                 logger.rlog(Level.INFO, Origin.EXHAUST, String.format("[%s] 100%%\n", "=".repeat(BAR_WIDTH)));
             }
 
-            // Validate it's actually a zip (magic bytes PK\x03\x04) before trying to extract
+            // Validate magic bytes before extraction
             try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(temp, "r")) {
-                if (raf.length() < 4) throw new IOException("Downloaded file is too small to be a zip (" + raf.length() + " bytes) — the URL may be wrong or the version doesn't exist");
+                if (raf.length() < 4)
+                    throw new IOException("Downloaded file too small (" + raf.length() + " bytes) — URL may be wrong or version doesn't exist: " + urlStr);
                 int b0 = raf.read(), b1 = raf.read(), b2 = raf.read(), b3 = raf.read();
-                if (!(b0 == 0x50 && b1 == 0x4B && b2 == 0x03 && b3 == 0x04)) {
-                    throw new IOException("Downloaded file is not a valid zip archive — got an error page instead. URL: " + urlStr);
-                }
+                boolean validZip  = (b0 == 0x50 && b1 == 0x4B && b2 == 0x03 && b3 == 0x04);
+                boolean validXz   = (b0 == 0xFD && b1 == 0x37 && b2 == 0x7A && b3 == 0x58); // \xfd7zX
+                if (!validZip && !validXz)
+                    throw new IOException("Downloaded file is not a valid archive (got error page?) URL: " + urlStr);
             }
 
             logger.logln(Level.INFO, Origin.EXHAUST, String.format("Extracting to %s...", new Ansi().c(WHITE).s(root.getAbsolutePath())));
@@ -155,26 +161,30 @@ public class CompilerZig implements ICompiler {
                 throw new IOException("Failed to create output directory: " + root);
             }
 
-            try (ZipInputStream zis = new ZipInputStream(new FileInputStream(temp))) {
-                ZipEntry entry;
-                while ((entry = zis.getNextEntry()) != null) {
-                    Path outPath = root.toPath().resolve(entry.getName());
-                    if (entry.isDirectory()) {
-                        Files.createDirectories(outPath);
-                    } else {
-                        Files.createDirectories(outPath.getParent());
-                        try (OutputStream fos = Files.newOutputStream(outPath)) {
-                            byte[] buf = new byte[8192];
-                            int len;
-                            while ((len = zis.read(buf)) > 0) fos.write(buf, 0, len);
+            if (isLinuxHost || archiveSuffix.equals(".tar.xz")) {
+                // Extract tar.xz using system tar (available on all Linux/macOS)
+                ProcessBuilder pb = new ProcessBuilder("tar", "-xJf", temp.getAbsolutePath(), "-C", root.getAbsolutePath());
+                pb.redirectErrorStream(true);
+                Process proc = pb.start();
+                proc.waitFor();
+            } else {
+                // Extract zip (Windows / macOS zip builds)
+                try (ZipInputStream zis = new ZipInputStream(new java.io.FileInputStream(temp))) {
+                    ZipEntry entry;
+                    while ((entry = zis.getNextEntry()) != null) {
+                        Path outPath = root.toPath().resolve(entry.getName());
+                        if (entry.isDirectory()) {
+                            Files.createDirectories(outPath);
+                        } else {
+                            Files.createDirectories(outPath.getParent());
+                            try (OutputStream fos = Files.newOutputStream(outPath)) {
+                                byte[] buf = new byte[8192];
+                                int len;
+                                while ((len = zis.read(buf)) > 0) fos.write(buf, 0, len);
+                            }
                         }
-
-                        if (entry.getName().endsWith("zig" + extension)) {
-                            outPath.toFile().setExecutable(true);
-                            return outPath.toFile();
-                        }
+                        zis.closeEntry();
                     }
-                    zis.closeEntry();
                 }
             }
 
