@@ -85,6 +85,7 @@ public class Metaphor {
                 .mutator("number.table", IntegerTableTransformer.class)
                 .mutator("mba", MBATransformer.class)
                 .mutator("numberobf", NumberTransformer.class)
+                .mutator("member-shuffle", MemberShuffleTransformer.class)
                 .mutator("dead-code",  DeadCodeInjectorTransformer.class)
                 .mutator("virtualize",  VirtualizingTransformer.class)  
                 
