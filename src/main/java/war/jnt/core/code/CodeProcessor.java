@@ -39,7 +39,7 @@ public class CodeProcessor implements Opcodes {
         Map<AbstractInsnNode, Frame<BasicValue>> frames = graph.getFrames();
 
         if (!graphOk || frames == null) {
-            Logger.INSTANCE.log(Level.WARNING, Origin.ARK,
+            Logger.INSTANCE.log(Level.WARNING, Origin.EXHAUST,
                 String.format("Skipping transpilation of %s#%s%s — CFG analysis failed (incompatible stack heights or malformed bytecode)%n",
                     node.name, method.name, method.desc));
             return String.format("\t/* SKIPPED: CFG analysis failed for %s%s */\n", method.name, method.desc);
