@@ -12,6 +12,7 @@ import war.jnt.dash.Origin;
 import war.jnt.utility.timing.Timing;
 
 import java.io.*;
+import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
 import java.net.URLConnection;
@@ -85,7 +86,8 @@ public class CompilerZig implements ICompiler {
                 hostArch, hostOs,
                 config.getString("zig.arch"), config.getString("zig.os")));
 
-        String zipName = String.format("zig-%s-%s-%s.zip", hostArch, hostOs, version);
+        // Zig filenames are zig-{os}-{arch}-{version}.zip  (OS first, then arch)
+        String zipName = String.format("zig-%s-%s-%s.zip", hostOs, hostArch, version);
         String urlStr = String.format("https://ziglang.org/download/%s/%s", version, zipName);
 
         try {
@@ -93,7 +95,21 @@ public class CompilerZig implements ICompiler {
             File temp = File.createTempFile("zig", ".zip");
             temp.deleteOnExit();
 
-            URLConnection conn = url.openConnection();
+            // Follow redirects manually (HttpURLConnection doesn't cross http->https)
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setInstanceFollowRedirects(true);
+            conn.setRequestProperty("User-Agent", "jnt-downloader");
+            conn.connect();
+
+            int status = conn.getResponseCode();
+            if (status == HttpURLConnection.HTTP_MOVED_PERM || status == HttpURLConnection.HTTP_MOVED_TEMP || status == 307 || status == 308) {
+                String location = conn.getHeaderField("Location");
+                conn.disconnect();
+                conn = (HttpURLConnection) URI.create(location).toURL().openConnection();
+                conn.setInstanceFollowRedirects(true);
+                conn.connect();
+            }
+
             int totalBytes = conn.getContentLength();
 
             logger.logln(Level.INFO, Origin.EXHAUST, String.format("Downloading zig compiler from %s (%s bytes)",
@@ -122,6 +138,15 @@ public class CompilerZig implements ICompiler {
                     }
                 }
                 logger.rlog(Level.INFO, Origin.EXHAUST, String.format("[%s] 100%%\n", "=".repeat(BAR_WIDTH)));
+            }
+
+            // Validate it's actually a zip (magic bytes PK\x03\x04) before trying to extract
+            try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(temp, "r")) {
+                if (raf.length() < 4) throw new IOException("Downloaded file is too small to be a zip (" + raf.length() + " bytes) — the URL may be wrong or the version doesn't exist");
+                int b0 = raf.read(), b1 = raf.read(), b2 = raf.read(), b3 = raf.read();
+                if (!(b0 == 0x50 && b1 == 0x4B && b2 == 0x03 && b3 == 0x04)) {
+                    throw new IOException("Downloaded file is not a valid zip archive — got an error page instead. URL: " + urlStr);
+                }
             }
 
             logger.logln(Level.INFO, Origin.EXHAUST, String.format("Extracting to %s...", new Ansi().c(WHITE).s(root.getAbsolutePath())));
