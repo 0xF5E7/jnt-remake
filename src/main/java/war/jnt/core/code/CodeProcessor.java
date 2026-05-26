@@ -34,12 +34,18 @@ public class CodeProcessor implements Opcodes {
     public static String forMethod(JClassNode node, MethodNode method, ConfigurationSection config) {
         List<TryCatchBlockNode> tryCatchBlocks = method.tryCatchBlocks;
         ControlFlowGraph graph = new ControlFlowGraph(node, method);
-        graph.compute();
+        boolean graphOk = graph.compute();
 
         Map<AbstractInsnNode, Frame<BasicValue>> frames = graph.getFrames();
 
-        var builder = new StringBuilder();
+        if (!graphOk || frames == null) {
+            Logger.INSTANCE.log(Level.WARNING, Origin.ARK,
+                String.format("Skipping transpilation of %s#%s%s — CFG analysis failed (incompatible stack heights or malformed bytecode)%n",
+                    node.name, method.name, method.desc));
+            return String.format("\t/* SKIPPED: CFG analysis failed for %s%s */\n", method.name, method.desc);
+        }
 
+        var builder = new StringBuilder();
         var tjvm = new TempJumpVM(builder, config.getConfigurationSection("mutators.jnt.virtualize").getBoolean("enabled", false), config.getConfigurationSection("mutators.jnt.virtualize").getInt("chance"));
         tjvm.insertSetupCode();
 
@@ -50,10 +56,6 @@ public class CodeProcessor implements Opcodes {
         UnitContext ctx = new UnitContext(builder, tracker, node, method, false);
 
         ctx.fmtAppend("\t/* %s */\n", String.format("%s -> %s%s", node.name, method.name, method.desc));
-
-        // TODO: need to edit it a bit, sometimes it will crash the entire thing ;o
-//        if (config.getBoolean("mutators.jnt.traceless", false))
-//            ctx.fmtAppend("jnt_reset_traceback(env);\n");
 
         var varMan = new VariableManager();
         final InnerCache ic = new InnerCache(ctx, varMan);
