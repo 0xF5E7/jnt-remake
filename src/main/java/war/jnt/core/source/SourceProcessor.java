@@ -13,7 +13,6 @@ public class SourceProcessor {
         var builder = new StringBuilder();
 
         String headerName = NameProcessor.forClass(node.name) + ".h";
-
         builder.append("#include \"").append(headerName).append("\"\n\n");
 
         for (MethodNode method : node.methods) {
@@ -21,13 +20,9 @@ public class SourceProcessor {
             if (Internal.disallowedTranspile(node, method)) continue;
 
             String signature = HeaderProcessor.signature(node, method);
-            //builder.append("finline ").append(signature).append(" {\n");
-
-            builder.append(signature).append(" {\n");
-
             String code = CodeProcessor.forMethod(node, method, config);
+            builder.append(signature).append(" {\n");
             builder.append(code);
-
             builder.append("}\n");
         }
 
