@@ -77,7 +77,7 @@ public class LocalVariableRenameTransformer extends Mutator {
             }
         }
 
-        logger.logln(Level.INFO, Origin.METAPHOR,
+        logger.logln(Level.VERY_HIGH, Origin.METAPHOR,
             String.format("LocalVariableRenamer: renamed %d slots across %d entries (%d synthetic)",
                 renamedSlots, renamedEntries, synthesized));
     }
