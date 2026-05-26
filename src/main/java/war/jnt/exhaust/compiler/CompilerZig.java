@@ -166,7 +166,12 @@ public class CompilerZig implements ICompiler {
                 ProcessBuilder pb = new ProcessBuilder("tar", "-xJf", temp.getAbsolutePath(), "-C", root.getAbsolutePath());
                 pb.redirectErrorStream(true);
                 Process proc = pb.start();
-                proc.waitFor();
+                try {
+                    proc.waitFor();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("Interrupted while extracting zig tar.xz", e);
+                }
             } else {
                 // Extract zip (Windows / macOS zip builds)
                 try (ZipInputStream zis = new ZipInputStream(new java.io.FileInputStream(temp))) {
